@@ -70,7 +70,8 @@ export class KeywordMatcher {
     if (this.options.wordBoundary) {
       // Escape special regex chars in keyword, then apply word boundary
       const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const regex = new RegExp(`\\b${escaped}\\b`, "i");
+      const flags = this.options.caseSensitive ? "" : "i";
+      const regex = new RegExp(`\\b${escaped}\\b`, flags);
       return regex.test(search);
     }
 

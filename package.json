@@ -1,0 +1,27 @@
+{
+  "name": "pi-doc-injector",
+  "version": "0.1.0",
+  "description": "Auto-inject relevant project documentation into Pi's LLM context based on keyword matching",
+  "type": "module",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "*.ts",
+    "docs/**/*.md",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "test:watch": "bun test --watch"
+  },
+  "keywords": ["pi-package", "pi-extension", "docs", "context", "llm"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  }
+}

@@ -96,17 +96,8 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     // Clear buffer
     textBuffer = "";
 
-    // If we have pending matches, mark docs as injected now
-    // The actual injection happens in before_agent_start
+    // Notify user about pending injections
     if (pendingMatches.size > 0) {
-      for (const [filePath] of pendingMatches) {
-        const entry = registry.getEntries().find((e) => e.filePath === filePath);
-        if (entry) {
-          entry.injected = true;
-        }
-      }
-
-      // Notify user about pending injections
       const matchedEntries: DocEntry[] = [];
       for (const [filePath] of pendingMatches) {
         const entry = registry.getEntries().find((e) => e.filePath === filePath);
@@ -131,15 +122,21 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       return;
     }
 
-    const append = buildSystemPromptAppend(matchedEntries, pendingMatches);
-    pendingMatches.clear();
-
     // Check context budget before injecting
     const usage = _ctx.getContextUsage();
     if (usage && usage.tokens > 0 && usage.percentage && usage.percentage > 80) {
       console.warn("[doc-injector] Skipping injection: context usage > 80%");
+      pendingMatches.clear();
       return;
     }
+
+    const append = buildSystemPromptAppend(matchedEntries, pendingMatches);
+
+    // Mark as injected only after confirming injection will happen
+    for (const entry of matchedEntries) {
+      entry.injected = true;
+    }
+    pendingMatches.clear();
 
     return {
       systemPrompt: (_event.systemPrompt || "") + "\n\n" + append,

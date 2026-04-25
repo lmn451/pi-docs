@@ -43,6 +43,14 @@ describe("KeywordMatcher", () => {
     expect(matcher.match("tEsT").length).toBeGreaterThan(0);
   });
 
+  test("case-sensitive matching when enabled", () => {
+    const entries = [makeEntry("test.md", ["TEST"])];
+    const matcher = new KeywordMatcher(entries, { caseSensitive: true, wordBoundary: true, matchThreshold: 1 });
+
+    expect(matcher.match("this is a test")).toHaveLength(0);
+    expect(matcher.match("this is a TEST")).toHaveLength(1);
+  });
+
   test("threshold filtering", () => {
     const entries = [makeEntry("test.md", ["test", "testing", "unit", "assert"])];
     const matcher = new KeywordMatcher(entries, { matchThreshold: 3 });

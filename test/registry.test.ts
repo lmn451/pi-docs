@@ -74,6 +74,7 @@ keywords: [test, workflow]
 Content.
 `;
     const result = parseFrontmatter(content);
+    expect(result).not.toBeNull();
     expect(result!.title).toBe("Multi-word Title");
   });
 });
