@@ -13,7 +13,7 @@ pi install npm:pi-doc-injector
 ### Via git
 
 ```bash
-pi install git:github.com/yourname/pi-doc-injector
+pi install git:github.com/lmn451/pi-doc-injector
 ```
 
 ### Manual
@@ -36,6 +36,7 @@ keywords: [test, testing, jest, vitest]
 ---
 
 # Testing Workflow
+
 Your documentation here...
 ```
 
@@ -68,12 +69,12 @@ Create `.pi/doc-injector.json` in your project root to customize behavior:
 }
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `docsPath` | `"./docs"` | Path to docs folder (relative to project root) |
-| `matchThreshold` | `2` | Minimum keyword matches required to inject a doc |
-| `contextThreshold` | `80` | Skip injection when context usage exceeds this % (0–100) |
-| `recursive` | `true` | Scan docs subdirectories recursively |
+| Option             | Default    | Description                                              |
+| ------------------ | ---------- | -------------------------------------------------------- |
+| `docsPath`         | `"./docs"` | Path to docs folder (relative to project root)           |
+| `matchThreshold`   | `2`        | Minimum keyword matches required to inject a doc         |
+| `contextThreshold` | `80`       | Skip injection when context usage exceeds this % (0–100) |
+| `recursive`        | `true`     | Scan docs subdirectories recursively                     |
 
 ### Keyword Matching
 
@@ -83,15 +84,15 @@ Injection is also skipped if the current context usage exceeds 80% of the token 
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `/doc-inject on` | Enable doc injection |
-| `/doc-inject off` | Disable doc injection |
-| `/doc-inject toggle` | Toggle doc injection on/off |
-| `/doc-inject list` | List all registered docs and their injection status |
-| `/doc-inject reset` | Reset all injected flags (docs become re-injectable) |
-| `/doc-inject status` | Show current injection status and config |
-| `/doc-reload` | Re-scan docs folder and rebuild registry |
+| Command              | Description                                          |
+| -------------------- | ---------------------------------------------------- |
+| `/doc-inject on`     | Enable doc injection                                 |
+| `/doc-inject off`    | Disable doc injection                                |
+| `/doc-inject toggle` | Toggle doc injection on/off                          |
+| `/doc-inject list`   | List all registered docs and their injection status  |
+| `/doc-inject reset`  | Reset all injected flags (docs become re-injectable) |
+| `/doc-inject status` | Show current injection status and config             |
+| `/doc-reload`        | Re-scan docs folder and rebuild registry             |
 
 ## Injection Lifecycle
 
