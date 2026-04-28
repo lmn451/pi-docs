@@ -1,9 +1,28 @@
 ---
 title: "Publishing Workflow"
-keywords: [publish, release, npm, version, tag, semantic versioning]
+keywords: [publish, release, npm, version, tag, bun, oidc, trusted publisher]
 ---
 
 # Publishing Workflow
+
+## Trusted Publisher (OIDC)
+
+This package uses **npm trusted publishing** — no tokens needed. The GitHub Actions workflow authenticates via OIDC, which is configured at:
+
+```
+https://www.npmjs.com/package/pi-doc-injector → Settings → Trusted Publisher
+```
+
+The trusted publisher entry authorizes `lmn451/pi-docs` with workflow `publish.yml`.
+
+## How It Works
+
+1. Push a `v*` tag → triggers the publish workflow
+2. GitHub Actions generates a short-lived OIDC token (`id-token: write`)
+3. npm verifies the OIDC claims match the trusted publisher config
+4. Package is published with provenance attestation
+
+No `NPM_TOKEN` secret, no token rotation, nothing to leak.
 
 ## Versioning
 
@@ -12,69 +31,57 @@ We follow [Semantic Versioning](https://semver.org/):
 - **MINOR** — backwards-compatible functionality additions
 - **PATCH** — backwards-compatible bug fixes
 
-## Publishing a New Version
-
-### 1. Bump the version
+## Release Process
 
 ```bash
-npm version patch  # 0.1.1 → 0.1.2
-npm version minor  # 0.1.1 → 0.2.0
-npm version major  # 0.1.1 → 1.0.0
+# 1. Edit version in package.json (e.g., 0.1.1 → 0.1.2)
+
+# 2. Commit, tag, and push
+git add package.json
+git commit -m "chore: bump version to X.Y.Z"
+git tag vX.Y.Z
+git push origin master
+git push origin vX.Y.Z
 ```
 
-This updates `package.json` and creates a local tag.
-
-### 2. Push the tag to trigger the workflow
+Or use `npm version`:
 
 ```bash
-git push origin v0.1.1
+npm version patch   # bumps version, commits, tags
+git push origin master --follow-tags
 ```
 
-Or push all tags:
+## CI/CD
 
-```bash
-git push origin --tags
-```
+The `Publish` workflow triggers on `v*` tags and:
+- Runs `bun install --frozen-lockfile`
+- Verifies tag matches `package.json` version
+- Runs `bun test`
+- Publishes to npm with provenance via OIDC
 
-**Important:** The publish workflow triggers on tags pushed to remote, not just locally created tags. The tag must match the pattern `v*` (e.g., `v0.1.1`, `v0.2.0`).
-
-### 3. GitHub Actions Publish workflow
-
-Once the tag is pushed, the `Publish` workflow automatically:
-- Runs tests
-- Publishes to npm registry
-
-Monitor the workflow at: `https://github.com/lmn451/pi-docs/actions`
+Monitor: https://github.com/lmn451/pi-docs/actions
 
 ## Verify the Publish
-
-Check if the package was published:
 
 ```bash
 npm view pi-doc-injector
 ```
 
-## Manual Publish
+## Manual Publish (first time only)
 
-If needed, you can publish manually:
+OIDC only works after the package exists on npm. For the initial publish:
 
 ```bash
-npm publish
+npm login
+npm publish --access public
 ```
 
-## Setup
-
-Ensure your npm token is configured as a GitHub secret:
-- Go to repository Settings → Secrets and variables → Actions
-- Add a new secret named `NPM_TOKEN` with your npm access token
+After that, configure the trusted publisher and all future releases go through CI.
 
 ## Troubleshooting
 
-**Workflow didn't run?**
-- Verify the tag exists remotely: `git ls-remote origin refs/tags/v0.1.1`
-- Check that the tag matches the pattern `v*`
-- Check GitHub Actions runs at: `https://github.com/lmn451/pi-docs/actions`
-
-**npm publish failed?**
-- Ensure `NPM_TOKEN` secret is set
-- Verify the version hasn't already been published
+| Issue | Solution |
+|-------|----------|
+| Workflow didn't run | Verify tag exists: `git ls-remote origin refs/tags/vX.Y.Z` |
+| 404 on publish | Verify trusted publisher config on npmjs.com matches exactly |
+| Version already published | Bump to a new version |
