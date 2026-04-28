@@ -16,12 +16,24 @@
     "test": "bun test",
     "test:watch": "bun test --watch"
   },
-  "keywords": ["pi-package", "pi-extension", "docs", "context", "llm"],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "docs",
+    "context",
+    "llm"
+  ],
   "license": "MIT",
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*"
-  }
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.13"
+  },
+  "packageManager": "pnpm@10.32.1+sha512.a706938f0e89ac1456b6563eab4edf1d1faf3368d1191fc5c59790e96dc918e4456ab2e67d613de1043d2e8c81f87303e6b40d4ffeca9df15ef1ad567348f2be"
 }

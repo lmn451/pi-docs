@@ -6,6 +6,14 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { DocEntry } from "./types";
 
 /**
+ * Interface for the UI notification capability needed by the injector.
+ * Matches Pi's ExtensionContext['ui'] notify signature.
+ */
+export interface NotifyCapability {
+  notify: (msg: string, type?: "info" | "warning" | "error") => void;
+}
+
+/**
  * Build a system prompt append string from matched documents.
  */
 export function buildSystemPromptAppend(
@@ -23,7 +31,7 @@ export function buildSystemPromptAppend(
   for (const entry of entries) {
     const keywords = matchedKeywords.get(entry.filePath) ?? [];
     sections.push(`### ${entry.title}`);
-    sections.push(`Source: \`${entry.fileName}\``);
+    sections.push(`Source: \`${entry.relativePath}\``);
     if (keywords.length > 0) {
       sections.push(`Matched keywords: ${keywords.join(", ")}`);
     }
@@ -39,13 +47,13 @@ export function buildSystemPromptAppend(
  * Notify the user via TUI when documents are injected.
  */
 export function notifyInjection(
-  ui: { notify: (msg: string, type?: "info" | "warning" | "error" | "success") => void },
+  ui: NotifyCapability,
   entries: DocEntry[],
   matchedKeywords: Map<string, string[]>,
 ): void {
   for (const entry of entries) {
     const keywords = matchedKeywords.get(entry.filePath) ?? [];
     const kwList = keywords.join(", ");
-    ui.notify(`📄 Injected: ${entry.fileName} (matched: ${kwList})`, "info");
+    ui.notify(`📄 Injected: ${entry.relativePath} (matched: ${kwList})`, "info");
   }
 }

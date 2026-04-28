@@ -1,3 +1,5 @@
+/// <reference types="bun-types" />
+
 import { loadConfig } from "../config";
 import { DEFAULT_CONFIG } from "../types";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -49,6 +51,26 @@ describe("loadConfig", () => {
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ recursive: false }));
     const config = loadConfig(tmpDir);
     expect(config.recursive).toBe(false);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("clamps matchThreshold below 1 to 1", () => {
+    const tmpDir = join(process.cwd(), ".test-config-match-low");
+    const configDir = join(tmpDir, ".pi");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ matchThreshold: 0 }));
+    const config = loadConfig(tmpDir);
+    expect(config.matchThreshold).toBe(1);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("preserves valid matchThreshold", () => {
+    const tmpDir = join(process.cwd(), ".test-config-match-valid");
+    const configDir = join(tmpDir, ".pi");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ matchThreshold: 5 }));
+    const config = loadConfig(tmpDir);
+    expect(config.matchThreshold).toBe(5);
     rmSync(tmpDir, { recursive: true, force: true });
   });
 });

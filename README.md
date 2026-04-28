@@ -57,19 +57,23 @@ keywords:
 
 ## Configuration
 
-Create `.pi/doc-injector.json` to customize behavior:
+Create `.pi/doc-injector.json` in your project root to customize behavior:
 
 ```json
 {
   "docsPath": "./docs",
-  "matchThreshold": 2
+  "matchThreshold": 2,
+  "contextThreshold": 80,
+  "recursive": true
 }
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `docsPath` | `./docs` | Path to your documentation folder |
-| `matchThreshold` | `2` | Minimum keyword matches before injecting |
+| `docsPath` | `"./docs"` | Path to docs folder (relative to project root) |
+| `matchThreshold` | `2` | Minimum keyword matches required to inject a doc |
+| `contextThreshold` | `80` | Skip injection when context usage exceeds this % (0–100) |
+| `recursive` | `true` | Scan docs subdirectories recursively |
 
 ### Keyword Matching
 
@@ -81,13 +85,22 @@ Injection is also skipped if the current context usage exceeds 80% of the token 
 
 | Command | Description |
 |---------|-------------|
-| `/doc-inject on` | Enable auto-injection |
-| `/doc-inject off` | Disable auto-injection |
-| `/doc-inject toggle` | Toggle on/off |
-| `/doc-inject status` | Show injector status, doc count, keyword count |
-| `/doc-inject list` | List all registered documents |
-| `/doc-inject reset` | Reset injection state (allows re-matching docs) |
-| `/doc-reload` | Re-scan docs folder |
+| `/doc-inject on` | Enable doc injection |
+| `/doc-inject off` | Disable doc injection |
+| `/doc-inject toggle` | Toggle doc injection on/off |
+| `/doc-inject list` | List all registered docs and their injection status |
+| `/doc-inject reset` | Reset all injected flags (docs become re-injectable) |
+| `/doc-inject status` | Show current injection status and config |
+| `/doc-reload` | Re-scan docs folder and rebuild registry |
+
+## Injection Lifecycle
+
+The extension uses a per-session injection model:
+
+- On `session_start`, the registry is rebuilt from scratch, resetting all `injected` flags.
+- Within a session, once a document is injected, it won't be re-injected automatically.
+- Use `/doc-inject reset` to manually reset all flags and allow docs to be injected again.
+- Use `/doc-inject list` to see which docs have been injected (✅) and which are pending (⬜).
 
 ## Development
 

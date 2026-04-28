@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 const makeEntry = (name: string, keywords: string[], content: string): DocEntry => ({
   filePath: `/docs/${name}`,
   fileName: name,
+  relativePath: name,
   title: name,
   keywords,
   content,
@@ -38,6 +39,24 @@ describe("buildSystemPromptAppend", () => {
 
   test("returns empty string for no entries", () => {
     expect(buildSystemPromptAppend([], new Map())).toBe("");
+  });
+
+  test("uses relativePath in Source line", () => {
+    const entry: DocEntry = {
+      filePath: "/docs/guides/setup.md",
+      fileName: "setup.md",
+      relativePath: "guides/setup.md",
+      title: "Setup Guide",
+      keywords: ["setup"],
+      content: "# Setup Guide",
+      injected: false,
+    };
+    const map = new Map<string, string[]>();
+    map.set(entry.filePath, ["setup"]);
+
+    const result = buildSystemPromptAppend([entry], map);
+    expect(result).toContain("Source: `guides/setup.md`");
+    expect(result).not.toContain("Source: `setup.md`");
   });
 });
 

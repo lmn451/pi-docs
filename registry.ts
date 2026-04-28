@@ -1,8 +1,8 @@
 /**
  * Document Registry — scans a docs folder, parses frontmatter, maintains index.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { type Dirent, readdirSync, readFileSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
 import type { DocEntry } from "./types";
 
 /**
@@ -65,14 +65,16 @@ export function parseFrontmatter(
 export class DocRegistry {
   private entries: DocEntry[] = [];
   private docsPath: string;
+  private recursive: boolean;
 
-  private constructor(docsPath: string) {
+  private constructor(docsPath: string, recursive: boolean = true) {
     this.docsPath = docsPath;
+    this.recursive = recursive;
   }
 
   /** Create a registry by scanning the docs folder. */
-  static async create(docsPath: string): Promise<DocRegistry> {
-    const registry = new DocRegistry(docsPath);
+  static async create(docsPath: string, recursive: boolean = true): Promise<DocRegistry> {
+    const registry = new DocRegistry(docsPath, recursive);
     await registry.rebuild();
     return registry;
   }
@@ -86,28 +88,30 @@ export class DocRegistry {
     }
 
     try {
-      const files = readdirSync(resolved).filter((f) => f.endsWith(".md"));
+      const scanResults = this.recursive
+        ? this.scanRecursive(resolved)
+        : this.scanFlat(resolved);
 
       const newEntries: DocEntry[] = [];
-      for (const file of files) {
-        const filePath = join(resolved, file);
+      for (const { filePath, relativePath, fileName } of scanResults) {
         try {
           const raw = readFileSync(filePath, "utf-8");
           const parsed = parseFrontmatter(raw);
           if (!parsed) {
-            console.warn(`[doc-injector] Skipping ${file}: no valid frontmatter with keywords`);
+            console.warn(`[doc-injector] Skipping ${relativePath}: no valid frontmatter with keywords`);
             continue;
           }
           newEntries.push({
             filePath,
-            fileName: file,
+            fileName,
+            relativePath,
             title: parsed.title,
             keywords: parsed.keywords,
             content: raw,
             injected: preserved.get(filePath) ?? false,
           });
         } catch (err) {
-          console.warn(`[doc-injector] Error reading ${file}:`, err);
+          console.warn(`[doc-injector] Error reading ${relativePath}:`, err);
         }
       }
 
@@ -118,7 +122,48 @@ export class DocRegistry {
     }
   }
 
-  /** Get all registered entries. */
+  /** Scan top-level .md files only (non-recursive). */
+  private scanFlat(dir: string): Array<{ filePath: string; relativePath: string; fileName: string }> {
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => ({
+        filePath: join(dir, f),
+        relativePath: f,
+        fileName: f,
+      }));
+  }
+
+  /** Scan .md files recursively, including subdirectories. */
+  private scanRecursive(dir: string): Array<{ filePath: string; relativePath: string; fileName: string }> {
+    const results: Array<{ filePath: string; relativePath: string; fileName: string }> = [];
+    const dirents = readdirSync(dir, { recursive: true, withFileTypes: true }) as Dirent[];
+
+    for (const dirent of dirents) {
+      if (!dirent.isFile() || !dirent.name.endsWith(".md")) continue;
+
+      // Build relative path from the directory tree
+      const parentPath = (dirent as Dirent & { path?: string }).path ?? "";
+      const relPath = parentPath
+        ? relative(dir, join(parentPath, dirent.name))
+        : dirent.name;
+
+      results.push({
+        filePath: join(dir, relPath),
+        relativePath: relPath,
+        fileName: dirent.name,
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Get all registered entries.
+   *
+   * NOTE: Returned DocEntry objects share references with the internal registry.
+   * Mutating `injected` on returned objects will affect the registry's internal state.
+   * Prefer using markInjected() / markAllNotInjected() for explicit state changes.
+   */
   getEntries(): DocEntry[] {
     return [...this.entries];
   }
@@ -128,10 +173,25 @@ export class DocRegistry {
     return this.entries.filter((e) => !e.injected);
   }
 
-  /** Reset all injected flags. */
-  reset(): void {
+  /** Mark entries matching the given file paths as injected. */
+  markInjected(filePaths: string[]): void {
+    const pathSet = new Set(filePaths);
+    for (const e of this.entries) {
+      if (pathSet.has(e.filePath)) {
+        e.injected = true;
+      }
+    }
+  }
+
+  /** Reset all entries to not-injected state. */
+  markAllNotInjected(): void {
     for (const e of this.entries) {
       e.injected = false;
     }
+  }
+
+  /** @deprecated Use markAllNotInjected() for clarity. */
+  reset(): void {
+    this.markAllNotInjected();
   }
 }

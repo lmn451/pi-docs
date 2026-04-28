@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 const makeEntry = (name: string, keywords: string[]): DocEntry => ({
   filePath: `/docs/${name}`,
   fileName: name,
+  relativePath: name,
   title: name,
   keywords,
   content: `# ${name}`,

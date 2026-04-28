@@ -6,6 +6,7 @@
 export interface DocEntry {
   filePath: string;
   fileName: string;
+  relativePath: string;
   title: string;
   keywords: string[];
   content: string;
@@ -30,12 +31,16 @@ export interface MatchResult {
 export interface DocInjectorConfig {
   docsPath: string;
   matchThreshold: number;
+  contextThreshold: number;
+  recursive: boolean;
 }
 
 /** Default configuration values. */
 export const DEFAULT_CONFIG: DocInjectorConfig = {
   docsPath: "./docs",
   matchThreshold: 2,
+  contextThreshold: 80,
+  recursive: true,
 };
 
 /** Default matcher options derived from config. */
