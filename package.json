@@ -24,6 +24,10 @@
     "llm"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lmn451/pi-docs"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
