@@ -1,0 +1,41 @@
+# pi-doc-injector: Bug Fixes & Enhancements Spec
+
+**Date:** 2026-04-26
+
+## Verified Bugs
+
+### BUG-1: message_update buffer replacement is fragile (Low Priority)
+- **File:** `index.ts:80`
+- `textBuffer = extractText(msg.content)` replaces buffer on every update
+- Risk if Pi ever sends incremental deltas instead of full content
+- **Fix:** Add contract comment documenting Pi sends full accumulated content
+
+### BUG-3: Shallow directory scanning (Medium Priority)
+- **File:** `registry.ts:73` — `readdirSync(resolved)` only scans top-level
+- **Fix:** Add recursive scanning with `recursive` config option (default: true)
+
+### BUG-4: Dual reload paths (Low Priority)
+- **Files:** `index.ts:47-51`, `commands.ts:82-90`
+- **Fix:** Extract shared `reloadRegistry()` helper
+
+### REFACTOR-5: Encapsulate injected flag mutation (Medium Priority)
+- **File:** `index.ts:109` — direct `entry.injected = true` mutation
+- **Verified:** System works correctly (shared references propagate), but design is fragile
+- **Fix:** Add `markInjected(filePaths)` and `markAllNotInjected()` methods
+
+### STYLE-1: notifyInjection inline type (Low Priority)
+- **File:** `injector.ts:42`
+- **Fix:** Define `NotifyCapability` interface
+
+## Enhancements
+
+### ENH-1: Add tsconfig.json with strict: true
+### ENH-2: Add contextThreshold config option (default: 80)
+### ENH-3: Document streaming model and injection lifecycle
+
+## Non-Functional Requirements
+- NFR-1: All mutation through DocRegistry methods
+- NFR-2: O(n) scanning for recursive traverse
+- NFR-3: Backward-compatible config
+- NFR-4: All existing tests pass
+- NFR-5: New code has test coverage
