@@ -36,8 +36,20 @@ keywords: [test, testing, jest, vitest]
 ---
 
 # Testing Workflow
-
 Your documentation here...
+```
+
+Keywords can also be specified in block format:
+
+```md
+---
+title: "Testing Workflow"
+keywords:
+  - test
+  - testing
+  - jest
+  - vitest
+---
 ```
 
 3. Start Pi. The extension scans `docs/` on session start.
@@ -59,6 +71,12 @@ Create `.pi/doc-injector.json` to customize behavior:
 | `docsPath` | `./docs` | Path to your documentation folder |
 | `matchThreshold` | `2` | Minimum keyword matches before injecting |
 
+### Keyword Matching
+
+Matching is case-insensitive and respects word boundaries by default. Once a document is injected, it won't re-match until you run `/doc-inject reset`.
+
+Injection is also skipped if the current context usage exceeds 80% of the token budget.
+
 ## Commands
 
 | Command | Description |
@@ -66,8 +84,9 @@ Create `.pi/doc-injector.json` to customize behavior:
 | `/doc-inject on` | Enable auto-injection |
 | `/doc-inject off` | Disable auto-injection |
 | `/doc-inject toggle` | Toggle on/off |
+| `/doc-inject status` | Show injector status, doc count, keyword count |
 | `/doc-inject list` | List all registered documents |
-| `/doc-inject reset` | Reset injection state |
+| `/doc-inject reset` | Reset injection state (allows re-matching docs) |
 | `/doc-reload` | Re-scan docs folder |
 
 ## Development
