@@ -143,7 +143,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   });
 
   // ---- Event: before_agent_start (inject into system prompt) ----
-  pi.on("before_agent_start", async (_event, _ctx) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     if (!enabled || !registry || pendingMatches.size === 0) return;
 
     const matchedEntries: DocEntry[] = [];
@@ -160,7 +160,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     // Skip injection if context usage exceeds the configured threshold
     // (default: 80%). This prevents doc injection from pushing the context
     // past the model's limit.
-    const usage = _ctx.getContextUsage();
+    const usage = ctx.getContextUsage();
     if (usage && usage.tokens && usage.tokens > 0 && usage.percent && usage.percent > config.contextThreshold) {
       console.warn(`[doc-injector] Skipping injection: context usage > ${config.contextThreshold}%`);
       pendingMatches.clear();
@@ -174,7 +174,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     pendingMatches.clear();
 
     return {
-      systemPrompt: (_event.systemPrompt || "") + "\n\n" + append,
+      systemPrompt: (event.systemPrompt || "") + "\n\n" + append,
     };
   });
 
