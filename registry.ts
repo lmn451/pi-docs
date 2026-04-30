@@ -111,7 +111,10 @@ export class DocRegistry {
             injected: preserved.get(filePath) ?? false,
           });
         } catch (err) {
-          console.warn(`[doc-injector] Error reading ${relativePath}:`, err);
+          // Only warn for unexpected errors, not ENOENT (file deleted/moved after scan)
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            console.warn(`[doc-injector] Error reading ${relativePath}:`, err);
+          }
         }
       }
 
