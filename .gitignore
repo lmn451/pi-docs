@@ -1,0 +1,3 @@
+# Test fixtures (generated at runtime)
+test/integration/fixtures/
+test/integration/.pi/
