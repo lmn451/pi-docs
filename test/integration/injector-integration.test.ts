@@ -26,7 +26,6 @@ const FIXTURE_DOCS = resolve(import.meta.dir, "fixtures/docs");
 const setupDocs = () => {
   mkdirSync(FIXTURE_DOCS, { recursive: true });
 
-  // Doc with keywords "testing", "unit test"
   writeFileSync(
     resolve(FIXTURE_DOCS, "testing-guide.md"),
     `---
@@ -39,7 +38,6 @@ How to write tests in this project.
 `,
   );
 
-  // Doc with keywords "workflow", "ci"
   writeFileSync(
     resolve(FIXTURE_DOCS, "workflow.md"),
     `---
@@ -52,7 +50,6 @@ CI/CD and development workflow.
 `,
   );
 
-  // Doc with no valid frontmatter (should be skipped)
   writeFileSync(
     resolve(FIXTURE_DOCS, "no-frontmatter.md"),
     `# No Frontmatter
@@ -86,29 +83,26 @@ const cleanupConfig = () => {
 // ---- Mock ExtensionAPI ----
 
 interface MockExtensionAPI {
-  on: (
-    event: string,
-    handler: (event: unknown, ctx: unknown) => unknown,
-  ) => void;
+  on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => void;
   emit: (event: string, data: unknown, ctx: unknown) => Promise<unknown>;
-  registerCommand: (
-    name: string,
-    opts: { description: string; handler: (...args: unknown[]) => unknown },
-  ) => void;
+  registerCommand: (name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) => void;
   _handlers: Map<string, Array<(event: unknown, ctx: unknown) => unknown>>;
   _sessionCtx: {
     cwd: string;
     ui: { notify: ReturnType<typeof createMockFn> };
     getContextUsage: () => { tokens: number; percent: number } | null;
   };
+  _commandHandlers: Map<string, (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>>;
 }
 
 const createMockAPI = (): MockExtensionAPI => {
   const notifyFn = createMockFn();
   const getContextUsageFn = createMockFn();
+  const commandHandlers = new Map<string, (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>>();
 
   const api: MockExtensionAPI = {
     _handlers: new Map(),
+    _commandHandlers: commandHandlers,
     _sessionCtx: {
       cwd: import.meta.dir,
       ui: { notify: notifyFn },
@@ -122,11 +116,8 @@ const createMockAPI = (): MockExtensionAPI => {
       handlers.push(handler);
       this._handlers.set(event, handlers);
     },
-    registerCommand(
-      _name: string,
-      _opts: { description: string; handler: (...args: unknown[]) => unknown },
-    ) {
-      // No-op for tests
+    registerCommand(name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) {
+      commandHandlers.set(name, opts.handler as (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>);
     },
     async emit(event: string, data: unknown, ctx: unknown) {
       const handlers = this._handlers.get(event) ?? [];
@@ -144,109 +135,54 @@ const triggerSessionStart = async (api: MockExtensionAPI) => {
   await api.emit("session_start", {}, { cwd: import.meta.dir });
 };
 
-const triggerMessage = async (
-  api: MockExtensionAPI,
-  role: "user" | "assistant",
-  content: string,
-) => {
-  await api.emit(
-    "message_update",
-    {
-      message: { role, content },
-    },
-    api._sessionCtx,
-  );
-
-  await api.emit(
-    "message_end",
-    {
-      message: { role, content },
-    },
-    api._sessionCtx,
-  );
+const triggerMessage = async (api: MockExtensionAPI, role: "user" | "assistant", content: string) => {
+  await api.emit("message_update", { message: { role, content } }, api._sessionCtx);
+  await api.emit("message_end", { message: { role, content } }, api._sessionCtx);
 };
 
 const triggerAgentStart = async (api: MockExtensionAPI, systemPrompt = "") => {
-  const result = await api.emit(
-    "before_agent_start",
-    { systemPrompt },
-    api._sessionCtx,
-  );
+  const result = await api.emit("before_agent_start", { systemPrompt }, api._sessionCtx);
   return result;
 };
 
 // ---- Tests ----
 
 describe("Doc Injector Extension - Integration", () => {
-  beforeEach(() => {
-    setupDocs();
-    setupConfig();
-  });
-
-  afterEach(() => {
-    cleanupDocs();
-    cleanupConfig();
-  });
+  beforeEach(() => { setupDocs(); setupConfig(); });
+  afterEach(() => { cleanupDocs(); cleanupConfig(); });
 
   test("injects docs when keywords match in streaming output", async () => {
     const api = createMockAPI();
-    await docInjectorExtension(
-      api as unknown as Parameters<typeof docInjectorExtension>[0],
-    );
-
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    // Simulate LLM output containing "testing" keyword
     await triggerMessage(api, "assistant", "I'll help you with testing...");
-
-    // Trigger next agent turn - should inject matched docs
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
-    // Verify injection happened
     expect(result).toBeDefined();
     const typedResult = result as { systemPrompt?: string } | undefined;
-    expect(typedResult?.systemPrompt).toBeDefined();
-    expect(typedResult?.systemPrompt).toContain(
-      "## Relevant Context Documents",
-    );
+    expect(typedResult?.systemPrompt).toContain("## Relevant Context Documents");
     expect(typedResult?.systemPrompt).toContain("Testing Guide");
     expect(typedResult?.systemPrompt).toContain("Matched keywords:");
   });
 
   test("does not inject docs when keywords don't match", async () => {
     const api = createMockAPI();
-    await docInjectorExtension(
-      api as unknown as Parameters<typeof docInjectorExtension>[0],
-    );
-
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    // Simulate LLM output with unrelated content
     await triggerMessage(api, "assistant", "Hello, how can I help you today?");
-
-    // Trigger agent turn
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
-    // No injection should occur
     expect(result).toBeUndefined();
   });
 
   test("injects multiple matching docs", async () => {
     const api = createMockAPI();
-    await docInjectorExtension(
-      api as unknown as Parameters<typeof docInjectorExtension>[0],
-    );
-
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    // Simulate output containing multiple keyword matches
-    await triggerMessage(
-      api,
-      "assistant",
-      "About testing and workflow: let me explain the CI pipeline...",
-    );
-
-    // Trigger agent turn
+    await triggerMessage(api, "assistant", "About testing and workflow: let me explain the CI pipeline...");
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
     const typedResult = result as { systemPrompt?: string } | undefined;
@@ -256,97 +192,160 @@ describe("Doc Injector Extension - Integration", () => {
 
   test("marks injected docs so they aren't re-injected", async () => {
     const api = createMockAPI();
-    await docInjectorExtension(
-      api as unknown as Parameters<typeof docInjectorExtension>[0],
-    );
-
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    // First interaction - should inject
     await triggerMessage(api, "assistant", "testing is important...");
-    const result1 = await triggerAgentStart(
-      api,
-      "You are a helpful assistant.",
-    );
-    const typedResult1 = result1 as { systemPrompt?: string } | undefined;
-    expect(typedResult1?.systemPrompt).toContain("Testing Guide");
+    const result1 = await triggerAgentStart(api, "You are a helpful assistant.");
+    expect((result1 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
 
-    // Second interaction - doc already injected, should not re-inject
     await triggerMessage(api, "assistant", "More about testing...");
-    const result2 = await triggerAgentStart(
-      api,
-      "You are a helpful assistant.",
-    );
+    const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
 
     const typedResult2 = result2 as { systemPrompt?: string } | undefined;
-    // After first injection, the doc is marked as injected
-    // Second injection should not add it again
-    const injectionCount = (
-      typedResult2?.systemPrompt?.match(/Testing Guide/g) ?? []
-    ).length;
-    expect(injectionCount).toBeLessThanOrEqual(1);
+    if (typedResult2?.systemPrompt) {
+      const count = (typedResult2.systemPrompt.match(/Testing Guide/g) ?? []).length;
+      expect(count).toBeLessThanOrEqual(1);
+    }
   });
 
   test("sends notification when docs are injected", async () => {
     const api = createMockAPI();
-    await docInjectorExtension(
-      api as unknown as Parameters<typeof docInjectorExtension>[0],
-    );
-
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    // Match keywords
     await triggerMessage(api, "assistant", "testing unit test...");
     await triggerAgentStart(api, "You are a helpful assistant.");
 
-    // Check notification was sent
-    const notifyCalls = (
-      api._sessionCtx.ui.notify as unknown as { calls: unknown[][] }
-    ).calls;
+    const notifyCalls = (api._sessionCtx.ui.notify as unknown as { calls: unknown[][] }).calls;
     expect(notifyCalls.length).toBeGreaterThan(0);
-
     const notification = notifyCalls[0][0] as string;
     expect(notification).toContain("Injected:");
   });
 
   test("skips files without valid frontmatter keywords", async () => {
     const api = createMockAPI();
-    await docInjectorExtension(
-      api as unknown as Parameters<typeof docInjectorExtension>[0],
-    );
-
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    // Try to match something that only exists in no-frontmatter.md
-    await triggerMessage(
-      api,
-      "assistant",
-      "This file has no keywords to match against...",
-    );
+    await triggerMessage(api, "assistant", "This file has no keywords to match against...");
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
-    // No injection should occur since no-frontmatter.md has no keywords
     expect(result).toBeUndefined();
   });
 });
 
-describe("Doc Injector Extension - End-to-End with resources_discover", () => {
-  beforeEach(() => {
-    setupDocs();
-    setupConfig();
+describe("Doc Injector Extension - Commands", () => {
+  beforeEach(() => { setupDocs(); setupConfig(); });
+  afterEach(() => { cleanupDocs(); cleanupConfig(); });
+
+  test("/doc-inject reset allows re-injection", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    // First injection
+    await triggerMessage(api, "assistant", "testing is important...");
+    const result1 = await triggerAgentStart(api, "You are a helpful assistant.");
+    expect((result1 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
+
+    // Second message - doc already marked as injected
+    await triggerMessage(api, "assistant", "More about testing...");
+    const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
+    const typedResult2 = result2 as { systemPrompt?: string } | undefined;
+    if (typedResult2?.systemPrompt) {
+      const count = (typedResult2.systemPrompt.match(/Testing Guide/g) ?? []).length;
+      expect(count).toBeLessThanOrEqual(1);
+    }
+
+    // Invoke /doc-inject reset command
+    const resetHandler = api._commandHandlers.get("doc-inject");
+    expect(resetHandler).toBeDefined();
+    const notifyFn = createMockFn();
+    await resetHandler!("reset", { ui: { notify: notifyFn } });
+
+    // Now the same keyword should inject again
+    await triggerMessage(api, "assistant", "testing after reset...");
+    const result3 = await triggerAgentStart(api, "You are a helpful assistant.");
+    expect((result3 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
   });
 
-  afterEach(() => {
-    cleanupDocs();
-    cleanupConfig();
+  test("/doc-inject list shows status of all docs", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    const notifyFn = createMockFn();
+    const listHandler = api._commandHandlers.get("doc-inject");
+    expect(listHandler).toBeDefined();
+    await listHandler!("list", { ui: { notify: notifyFn } });
+
+    const notifyCalls = (notifyFn as unknown as { calls: unknown[][] }).calls;
+    expect(notifyCalls.length).toBeGreaterThan(0);
+    const notification = notifyCalls[0][0] as string;
+    expect(notification).toContain("testing-guide.md");
+    expect(notification).toContain("workflow.md");
   });
+
+  test("/doc-inject on/off enables and disables injection", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    const offHandler = api._commandHandlers.get("doc-inject");
+    expect(offHandler).toBeDefined();
+
+    const notifyFn = createMockFn();
+    await offHandler!("off", { ui: { notify: notifyFn } });
+
+    // Keywords should not trigger injection when disabled
+    await triggerMessage(api, "assistant", "testing workflow ci cd...");
+    const result = await triggerAgentStart(api, "You are a helpful assistant.");
+    expect(result).toBeUndefined();
+
+    // Turn back on
+    await offHandler!("on", { ui: { notify: notifyFn } });
+
+    // Now injection should work
+    await triggerMessage(api, "assistant", "testing...");
+    const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
+    expect((result2 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
+  });
+});
+
+describe("Doc Injector Extension - Session Reset", () => {
+  beforeEach(() => { setupDocs(); setupConfig(); });
+  afterEach(() => { cleanupDocs(); cleanupConfig(); });
+
+  test("session_start resets injected state for all docs", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+
+    // First session: inject doc
+    await triggerSessionStart(api);
+    await triggerMessage(api, "assistant", "testing is important...");
+    const result1 = await triggerAgentStart(api, "You are a helpful assistant.");
+    expect(result1).toBeDefined();
+
+    // Start new session (simulates /new or starting fresh)
+    await triggerSessionStart(api);
+
+    // Same keyword should match again because session_start rebuilt the registry
+    await triggerMessage(api, "assistant", "testing again...");
+    const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
+
+    const typedResult2 = result2 as { systemPrompt?: string } | undefined;
+    expect(typedResult2?.systemPrompt).toContain("Testing Guide");
+  });
+});
+
+describe("Doc Injector Extension - End-to-End with resources_discover", () => {
+  beforeEach(() => { setupDocs(); setupConfig(); });
+  afterEach(() => { cleanupDocs(); cleanupConfig(); });
 
   test("reloads registry when resources_discover fires", async () => {
     const api = createMockAPI();
-    await docInjectorExtension(
-      api as unknown as Parameters<typeof docInjectorExtension>[0],
-    );
-
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
     // Add a new doc after initial load
