@@ -103,6 +103,20 @@ The extension uses a per-session injection model:
 - Use `/doc-inject reset` to manually reset all flags and allow docs to be injected again.
 - Use `/doc-inject list` to see which docs have been injected (✅) and which are pending (⬜).
 
+### System Prompt Lifecycle
+
+Pi **reconstructs the system prompt from source files each turn** (verified against pi v0.70.6).
+
+When `before_agent_start` fires, the `systemPrompt` passed to the extension is a freshly rebuilt prompt from `AGENTS.md`, `SYSTEM.md`, skills, and tool snippets. It is **not** accumulated from previous turns.
+
+This means:
+
+- Injections apply to the **current turn only** and do not persist in subsequent turns.
+- There is no risk of duplicate injection sections stacking up over time.
+- The `injected` flag alone is sufficient to prevent re-injection — no additional deduplication or marker-based stripping is needed.
+
+For the full source-level verification, see the JSDoc block in `index.ts`.
+
 ## Development
 
 ```bash

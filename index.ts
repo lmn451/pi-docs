@@ -22,6 +22,29 @@
  * session, once a doc is injected, it won't be re-injected unless the user
  * manually runs `/doc-inject reset`.
  *
+ * ## System Prompt Lifecycle (verified against pi v0.70.6)
+ *
+ * Pi **reconstructs the system prompt from source files each turn**. Here is
+ * the exact flow, verified via source-code review of dist/core/agent-session.js
+ * and dist/core/extensions/runner.js (v0.70.6):
+ *
+ * 1. Before each agent turn, pi calls `this._rebuildSystemPrompt(toolNames)`.
+ *    This builds the prompt from `AGENTS.md`, `SYSTEM.md`, skills, enabled
+ *    tool snippets — never from a previously modified (injected) prompt.
+ * 2. The rebuilt prompt is stored in `this._baseSystemPrompt`.
+ * 3. `emitBeforeAgentStart(..., this._baseSystemPrompt, ...)` passes this
+ *    *fresh* base prompt to every extension handler.
+ * 4. Extension handlers can return a modified `systemPrompt` for the current
+ *    turn. Pi uses the modified prompt **only for this turn**.
+ * 5. When no extension modifies the prompt, pi explicitly resets to
+ *    `this._baseSystemPrompt` (comment in source: "Ensure we're using the
+ *    base prompt (in case previous turn had modifications)").
+ *
+ * **Therefore**: Previous injections from `before_agent_start` do NOT persist
+ * across turns. Duplicate sections cannot accumulate in the system prompt.
+ * The `injected` flag alone is sufficient to prevent re-injection — no
+ * marker-based stripping or deduplication is needed.
+ *
  * ## Race Condition Note
  *
  * If `resources_discover` (rebuild) fires while `before_agent_start` is running,
