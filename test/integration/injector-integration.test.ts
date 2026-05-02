@@ -2,9 +2,12 @@
  * Integration tests for the doc injector extension.
  * Tests the full injection lifecycle: session_start → message matching → injection.
  */
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "vitest";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 import docInjectorExtension from "../../index";
 
@@ -21,7 +24,7 @@ function createMockFn() {
 
 // ---- Test Fixtures ----
 
-const FIXTURE_DOCS = resolve(import.meta.dir, "fixtures/docs");
+const FIXTURE_DOCS = resolve(__dirname, "fixtures/docs");
 
 const setupDocs = () => {
   mkdirSync(FIXTURE_DOCS, { recursive: true });
@@ -64,9 +67,9 @@ const cleanupDocs = () => {
 };
 
 const setupConfig = () => {
-  mkdirSync(resolve(import.meta.dir, ".pi"), { recursive: true });
+  mkdirSync(resolve(__dirname, ".pi"), { recursive: true });
   writeFileSync(
-    resolve(import.meta.dir, ".pi", "doc-injector.json"),
+    resolve(__dirname, ".pi", "doc-injector.json"),
     JSON.stringify({
       docsPath: "./fixtures/docs",
       matchThreshold: 1,
@@ -77,7 +80,7 @@ const setupConfig = () => {
 };
 
 const cleanupConfig = () => {
-  rmSync(resolve(import.meta.dir, ".pi"), { recursive: true, force: true });
+  rmSync(resolve(__dirname, ".pi"), { recursive: true, force: true });
 };
 
 // ---- Mock ExtensionAPI ----
@@ -104,7 +107,7 @@ const createMockAPI = (): MockExtensionAPI => {
     _handlers: new Map(),
     _commandHandlers: commandHandlers,
     _sessionCtx: {
-      cwd: import.meta.dir,
+      cwd: __dirname,
       ui: { notify: notifyFn },
       getContextUsage: () => {
         const result = getContextUsageFn();
@@ -132,7 +135,7 @@ const createMockAPI = (): MockExtensionAPI => {
 };
 
 const triggerSessionStart = async (api: MockExtensionAPI) => {
-  await api.emit("session_start", {}, { cwd: import.meta.dir });
+  await api.emit("session_start", {}, { cwd: __dirname });
 };
 
 const triggerMessage = async (api: MockExtensionAPI, role: "user" | "assistant", content: string) => {

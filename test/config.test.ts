@@ -1,5 +1,4 @@
-/// <reference types="bun-types" />
-
+import { describe, test, expect } from "vitest";
 import { loadConfig } from "../config";
 import { DEFAULT_CONFIG } from "../types";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";

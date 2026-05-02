@@ -144,16 +144,28 @@ export class DocRegistry {
     for (const dirent of dirents) {
       if (!dirent.isFile() || !dirent.name.endsWith(".md")) continue;
 
-      // Build relative path from the directory tree
-      const parentPath = (dirent as Dirent & { path?: string }).path ?? "";
-      const relPath = parentPath
-        ? relative(dir, join(parentPath, dirent.name))
-        : dirent.name;
+      const fileName = basename(dirent.name);
+
+      // Cross-runtime: when dirent.name is just the filename, resolve the
+      // relative path from the parent directory. Use parentPath (Node 18+)
+      // with fallback to .path (Bun) for older runtimes.
+      let relPath: string;
+      if (dirent.name === fileName) {
+        const parentPath = (dirent as Dirent & { parentPath?: string; path?: string }).parentPath
+          ?? (dirent as Dirent & { path?: string }).path
+          ?? "";
+        relPath = parentPath
+          ? relative(dir, join(parentPath, dirent.name))
+          : dirent.name;
+      } else {
+        // Node-style: dirent.name already contains the relative path from dir
+        relPath = dirent.name;
+      }
 
       results.push({
         filePath: join(dir, relPath),
         relativePath: relPath,
-        fileName: dirent.name,
+        fileName,
       });
     }
 

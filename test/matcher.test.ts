@@ -1,6 +1,6 @@
 import { KeywordMatcher, extractText } from "../matcher";
 import type { DocEntry } from "../types";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 const makeEntry = (name: string, keywords: string[]): DocEntry => ({
   filePath: `/docs/${name}`,

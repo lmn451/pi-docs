@@ -1,7 +1,7 @@
 import { parseFrontmatter, DocRegistry } from "../registry";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach } from "vitest";
 
 describe("parseFrontmatter", () => {
   test("parses flow array keywords", () => {

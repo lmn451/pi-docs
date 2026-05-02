@@ -1,6 +1,6 @@
 import { buildSystemPromptAppend, notifyInjection } from "../injector";
 import type { DocEntry } from "../types";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 const makeEntry = (name: string, keywords: string[], content: string): DocEntry => ({
   filePath: `/docs/${name}`,

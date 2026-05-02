@@ -1,6 +1,6 @@
 ---
 title: "Publishing Workflow"
-keywords: [publish, release, npm, version, tag, bun, oidc, trusted publisher]
+keywords: [publish, release, npm, version, tag, node, oidc, trusted publisher]
 ---
 
 # Publishing Workflow
@@ -54,9 +54,9 @@ git push origin master --follow-tags
 ## CI/CD
 
 The `Publish` workflow triggers on `v*` tags and:
-- Runs `bun install --frozen-lockfile`
+- Runs `npm ci`
 - Verifies tag matches `package.json` version
-- Runs `bun test`
+- Runs `npm test`
 - Publishes to npm with provenance via OIDC
 
 Monitor: https://github.com/lmn451/pi-docs/actions

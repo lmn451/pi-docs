@@ -121,10 +121,10 @@ For the full source-level verification, see the JSDoc block in `index.ts`.
 
 ```bash
 # Run tests
-bun test
+npm test
 
 # Run tests in watch mode
-bun test --watch
+npm run test:watch
 ```
 
 ## License
