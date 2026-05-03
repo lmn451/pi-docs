@@ -69,6 +69,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   let enabled = true;
   let textBuffer = "";
   let pendingMatches = new Map<string, string[]>(); // filePath → matchedKeywords
+  let abortingForInjection = false; // guard against cascading aborts
 
   // ---- Helpers ----
   const getRegistry = () => registry;
@@ -97,8 +98,16 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     );
   };
 
+  let lastInitTime = 0;
+
   // ---- Event: session_start ----
+  // Pi fires session_start twice on startup (both with reason "startup").
+  // Use a 2-second dedup window to skip the duplicate. Real session changes
+  // (/new, /resume, /fork) happen well outside this window.
   pi.on("session_start", async (_event, ctx) => {
+    const now = Date.now();
+    if (now - lastInitTime < 100) return;
+    lastInitTime = now;
     await initRegistry(ctx.cwd);
   });
 
@@ -115,54 +124,65 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     await reloadRegistry();
   });
 
-  // ---- Event: message_update (streaming detection) ----
-  // NOTE: Pi's message_update event sends the full accumulated content of the
-  // assistant message on each update, not just the delta. We therefore REPLACE
-  // (not append to) the text buffer on each event, ensuring we always match
-  // against the complete message text.
-  pi.on("message_update", async (event, _ctx) => {
+  // ---- Event: input (user message matching) ----
+  // message_update only fires for assistant streaming messages, not user
+  // messages. We use the input event instead to populate pendingMatches
+  // BEFORE before_agent_start fires, so docs are injected in time for
+  // the assistant's immediate response.
+  pi.on("input", async (event, _ctx) => {
     if (!enabled || !registry) return;
+    if (!event.text) return;
 
-    // Only process assistant messages
-    const msg = event.message;
-    if (msg.role !== "assistant") return;
-
-    // Replace buffer with full message text (message_update contains full content)
-    const content = (msg as unknown as { content: unknown }).content;
-    textBuffer = extractText(content);
-    if (!textBuffer) return;
-
-    // Run matcher
     const matcher = buildMatcher();
     if (!matcher) return;
 
-    const results = matcher.match(textBuffer);
-
-    // Store matches (dedup by filePath)
+    const results = matcher.match(event.text);
     for (const result of results) {
       pendingMatches.set(result.entry.filePath, result.matchedKeywords);
     }
   });
 
-  // ---- Event: message_end (finalize matches) ----
-  pi.on("message_end", async (event, ctx) => {
+  // ---- Event: message_update (assistant streaming) ----
+  // For assistant streaming messages: if we detect NEW keyword matches for
+  // non-injected docs, abort the current generation and restart with the
+  // injected context — no waiting for the next turn.
+  pi.on("message_update", async (event, ctx) => {
     if (!enabled || !registry) return;
 
     const msg = event.message;
     if (msg.role !== "assistant") return;
 
-    // Clear buffer
-    textBuffer = "";
+    const content = (msg as unknown as { content: unknown }).content;
+    textBuffer = extractText(content);
+    if (!textBuffer) return;
 
-    // Notify user about pending injections
-    if (pendingMatches.size > 0) {
-      const matchedEntries: DocEntry[] = [];
-      for (const [filePath] of pendingMatches) {
-        const entry = registry.getEntries().find((e) => e.filePath === filePath);
-        if (entry) matchedEntries.push(entry);
+    const matcher = buildMatcher();
+    if (!matcher) return;
+
+    const results = matcher.match(textBuffer);
+
+    let hasNew = false;
+    for (const result of results) {
+      if (!pendingMatches.has(result.entry.filePath)) {
+        hasNew = true;
       }
-      notifyInjection(ctx.ui, matchedEntries, pendingMatches);
+      pendingMatches.set(result.entry.filePath, result.matchedKeywords);
     }
+
+    if (hasNew && !ctx.isIdle() && !abortingForInjection) {
+      abortingForInjection = true;
+      ctx.abort();
+    }
+  });
+
+  // ---- Event: message_end (finalize matches) ----
+  // Notification moved to before_agent_start so it fires for both user-triggered
+  // and auto-abort-triggered injections. message_end now just resets state.
+  pi.on("message_end", async (event, _ctx) => {
+    if (!enabled || !registry) return;
+    const msg = event.message;
+    if (msg.role !== "assistant") return;
+    textBuffer = "";
   });
 
   // ---- Event: before_agent_start (inject into system prompt) ----
@@ -194,11 +214,27 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
 
     // Mark as injected only after confirming injection will happen
     registry.markInjected(matchedEntries.map((e) => e.filePath));
+
+    // Notify user about injection (moved here from message_end so it fires
+    // even when matches come from user messages, which get cleared before
+    // the assistant's message_end)
+    notifyInjection(ctx.ui, matchedEntries, pendingMatches);
+
     pendingMatches.clear();
 
     return {
       systemPrompt: (event.systemPrompt || "") + "\n\n" + append,
     };
+  });
+
+  // ---- Event: agent_end (restart after auto-abort) ----
+  pi.on("agent_end", async () => {
+    if (abortingForInjection) {
+      abortingForInjection = false;
+      // Send a follow-up message to restart the turn.
+      // before_agent_start will inject the matched docs into context.
+      pi.sendUserMessage("continue", { deliverAs: "followUp" });
+    }
   });
 
   // ---- Commands ----

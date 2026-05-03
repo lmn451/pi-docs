@@ -54,7 +54,10 @@ keywords:
 ```
 
 3. Start Pi. The extension scans `docs/` on session start.
-4. When the LLM mentions keywords from your docs, the relevant document is injected into the next turn's system prompt.
+4. When the user mentions a keyword, the matching doc is injected into the
+   system prompt **before the assistant responds** — no one-turn delay.
+5. If the assistant mentions a NEW keyword mid-response, generation is
+   automatically aborted and restarted with the doc injected immediately.
 
 ## Configuration
 

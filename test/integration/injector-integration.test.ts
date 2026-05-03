@@ -89,23 +89,31 @@ interface MockExtensionAPI {
   on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => void;
   emit: (event: string, data: unknown, ctx: unknown) => Promise<unknown>;
   registerCommand: (name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) => void;
+  sendUserMessage: ReturnType<typeof createMockFn>;
   _handlers: Map<string, Array<(event: unknown, ctx: unknown) => unknown>>;
   _sessionCtx: {
     cwd: string;
     ui: { notify: ReturnType<typeof createMockFn> };
     getContextUsage: () => { tokens: number; percent: number } | null;
+    isIdle: () => boolean;
+    abort: ReturnType<typeof createMockFn>;
   };
   _commandHandlers: Map<string, (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>>;
+  _setIdle: (v: boolean) => void;
 }
 
 const createMockAPI = (): MockExtensionAPI => {
   const notifyFn = createMockFn();
   const getContextUsageFn = createMockFn();
+  const abortFn = createMockFn();
+  const sendUserMessageFn = createMockFn();
   const commandHandlers = new Map<string, (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>>();
+  let isIdle = true;
 
   const api: MockExtensionAPI = {
     _handlers: new Map(),
     _commandHandlers: commandHandlers,
+    sendUserMessage: sendUserMessageFn,
     _sessionCtx: {
       cwd: __dirname,
       ui: { notify: notifyFn },
@@ -113,7 +121,10 @@ const createMockAPI = (): MockExtensionAPI => {
         const result = getContextUsageFn();
         return result as { tokens: number; percent: number } | null;
       },
+      isIdle: () => isIdle,
+      abort: abortFn,
     },
+    _setIdle: (v: boolean) => { isIdle = v; },
     on(event: string, handler: (event: unknown, ctx: unknown) => unknown) {
       const handlers = this._handlers.get(event) ?? [];
       handlers.push(handler);
@@ -138,9 +149,13 @@ const triggerSessionStart = async (api: MockExtensionAPI) => {
   await api.emit("session_start", {}, { cwd: __dirname });
 };
 
-const triggerMessage = async (api: MockExtensionAPI, role: "user" | "assistant", content: string) => {
-  await api.emit("message_update", { message: { role, content } }, api._sessionCtx);
-  await api.emit("message_end", { message: { role, content } }, api._sessionCtx);
+const triggerInput = async (api: MockExtensionAPI, text: string) => {
+  await api.emit("input", { text }, api._sessionCtx);
+};
+
+const triggerAssistantStream = async (api: MockExtensionAPI, content: string) => {
+  await api.emit("message_update", { message: { role: "assistant", content } }, api._sessionCtx);
+  await api.emit("message_end", { message: { role: "assistant", content } }, api._sessionCtx);
 };
 
 const triggerAgentStart = async (api: MockExtensionAPI, systemPrompt = "") => {
@@ -159,7 +174,7 @@ describe("Doc Injector Extension - Integration", () => {
     await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    await triggerMessage(api, "assistant", "I'll help you with testing...");
+    await triggerInput(api, "I'll help you with testing...");
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
     expect(result).toBeDefined();
@@ -174,7 +189,7 @@ describe("Doc Injector Extension - Integration", () => {
     await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    await triggerMessage(api, "assistant", "Hello, how can I help you today?");
+    await triggerInput(api, "Hello, how can I help you today?");
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
     expect(result).toBeUndefined();
@@ -185,7 +200,7 @@ describe("Doc Injector Extension - Integration", () => {
     await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    await triggerMessage(api, "assistant", "About testing and workflow: let me explain the CI pipeline...");
+    await triggerInput(api, "About testing and workflow: let me explain the CI pipeline...");
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
     const typedResult = result as { systemPrompt?: string } | undefined;
@@ -198,11 +213,11 @@ describe("Doc Injector Extension - Integration", () => {
     await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    await triggerMessage(api, "assistant", "testing is important...");
+    await triggerInput(api, "testing is important...");
     const result1 = await triggerAgentStart(api, "You are a helpful assistant.");
     expect((result1 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
 
-    await triggerMessage(api, "assistant", "More about testing...");
+    await triggerInput(api, "More about testing...");
     const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
 
     const typedResult2 = result2 as { systemPrompt?: string } | undefined;
@@ -217,7 +232,7 @@ describe("Doc Injector Extension - Integration", () => {
     await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    await triggerMessage(api, "assistant", "testing unit test...");
+    await triggerInput(api, "testing unit test...");
     await triggerAgentStart(api, "You are a helpful assistant.");
 
     const notifyCalls = (api._sessionCtx.ui.notify as unknown as { calls: unknown[][] }).calls;
@@ -231,7 +246,7 @@ describe("Doc Injector Extension - Integration", () => {
     await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
 
-    await triggerMessage(api, "assistant", "This file has no keywords to match against...");
+    await triggerInput(api, "This file has no keywords to match against...");
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
     expect(result).toBeUndefined();
@@ -248,12 +263,12 @@ describe("Doc Injector Extension - Commands", () => {
     await triggerSessionStart(api);
 
     // First injection
-    await triggerMessage(api, "assistant", "testing is important...");
+    await triggerInput(api, "testing is important...");
     const result1 = await triggerAgentStart(api, "You are a helpful assistant.");
     expect((result1 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
 
     // Second message - doc already marked as injected
-    await triggerMessage(api, "assistant", "More about testing...");
+    await triggerInput(api, "More about testing...");
     const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
     const typedResult2 = result2 as { systemPrompt?: string } | undefined;
     if (typedResult2?.systemPrompt) {
@@ -268,7 +283,7 @@ describe("Doc Injector Extension - Commands", () => {
     await resetHandler!("reset", { ui: { notify: notifyFn } });
 
     // Now the same keyword should inject again
-    await triggerMessage(api, "assistant", "testing after reset...");
+    await triggerInput(api, "testing after reset...");
     const result3 = await triggerAgentStart(api, "You are a helpful assistant.");
     expect((result3 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
   });
@@ -302,7 +317,7 @@ describe("Doc Injector Extension - Commands", () => {
     await offHandler!("off", { ui: { notify: notifyFn } });
 
     // Keywords should not trigger injection when disabled
-    await triggerMessage(api, "assistant", "testing workflow ci cd...");
+    await triggerInput(api, "testing workflow ci cd...");
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
     expect(result).toBeUndefined();
 
@@ -310,7 +325,7 @@ describe("Doc Injector Extension - Commands", () => {
     await offHandler!("on", { ui: { notify: notifyFn } });
 
     // Now injection should work
-    await triggerMessage(api, "assistant", "testing...");
+    await triggerInput(api, "testing...");
     const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
     expect((result2 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
   });
@@ -326,15 +341,17 @@ describe("Doc Injector Extension - Session Reset", () => {
 
     // First session: inject doc
     await triggerSessionStart(api);
-    await triggerMessage(api, "assistant", "testing is important...");
+    await triggerInput(api, "testing is important...");
     const result1 = await triggerAgentStart(api, "You are a helpful assistant.");
     expect(result1).toBeDefined();
 
     // Start new session (simulates /new or starting fresh)
+    // Small delay to exceed the 100ms dedup window
+    await new Promise((r) => setTimeout(r, 110));
     await triggerSessionStart(api);
 
     // Same keyword should match again because session_start rebuilt the registry
-    await triggerMessage(api, "assistant", "testing again...");
+    await triggerInput(api, "testing again...");
     const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
 
     const typedResult2 = result2 as { systemPrompt?: string } | undefined;
@@ -368,10 +385,118 @@ Added after initial load.
     await api.emit("resources_discover", {}, api._sessionCtx);
 
     // New doc should now be available for matching
-    await triggerMessage(api, "assistant", "new feature added...");
+    await triggerInput(api, "new feature added...");
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
     const typedResult = result as { systemPrompt?: string } | undefined;
     expect(typedResult?.systemPrompt).toContain("New Documentation");
+  });
+});
+
+describe("Doc Injector Extension - Auto-Abort on Stream", () => {
+  beforeEach(() => { setupDocs(); setupConfig(); });
+  afterEach(() => { cleanupDocs(); cleanupConfig(); });
+
+  test("aborts when assistant mentions a new keyword mid-stream", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    // Simulate assistant streaming (not idle)
+    api._setIdle(false);
+
+    // Assistant says a keyword match mid-stream
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "Let's talk about testing..." } },
+      api._sessionCtx,
+    );
+
+    const abortCalls = (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls;
+    expect(abortCalls.length).toBe(1);
+  });
+
+  test("does NOT abort on user messages (already handled by before_agent_start)", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    // User messages fire when idle = true
+    api._setIdle(true);
+
+    // User says a keyword
+    await api.emit(
+      "message_update",
+      { message: { role: "user", content: "testing is important" } },
+      api._sessionCtx,
+    );
+
+    const abortCalls = (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls;
+    expect(abortCalls.length).toBe(0);
+  });
+
+  test("does NOT abort when no NEW matches (duplicate keyword in same response)", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    api._setIdle(false);
+
+    // First mention of keyword — should abort
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "testing..." } },
+      api._sessionCtx,
+    );
+
+    const abortCalls1 = (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls;
+    expect(abortCalls1.length).toBe(1);
+
+    // Second mention of same keyword (no abort guard active since abortingForInjection
+    // is reset in agent_end, but we haven't emitted agent_end — so guard is still true)
+    // The guard should prevent second abort
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "testing again..." } },
+      api._sessionCtx,
+    );
+
+    const abortCalls2 = (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls;
+    // Still only 1 abort because abortingForInjection guard is active
+    expect(abortCalls2.length).toBe(1);
+  });
+
+  test("agent_end sends follow-up message to restart after abort", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    // Trigger auto-abort
+    api._setIdle(false);
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "testing..." } },
+      api._sessionCtx,
+    );
+
+    // Emit agent_end — should trigger sendUserMessage("continue")
+    await api.emit("agent_end", {}, api._sessionCtx);
+
+    const sendCalls = (api.sendUserMessage as unknown as { calls: unknown[][] }).calls;
+    expect(sendCalls.length).toBe(1);
+    expect(sendCalls[0][0]).toBe("continue");
+    expect(sendCalls[0][1]).toEqual({ deliverAs: "followUp" });
+  });
+
+  test("does NOT send follow-up in agent_end without prior abort", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    // No abort happened — just emit agent_end
+    await api.emit("agent_end", {}, api._sessionCtx);
+
+    const sendCalls = (api.sendUserMessage as unknown as { calls: unknown[][] }).calls;
+    expect(sendCalls.length).toBe(0);
   });
 });
