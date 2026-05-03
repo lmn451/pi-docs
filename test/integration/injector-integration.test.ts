@@ -2,7 +2,7 @@
  * Integration tests for the doc injector extension.
  * Tests the full injection lifecycle: session_start → message matching → injection.
  */
-import { describe, expect, test, beforeEach, afterEach } from "vitest";
+import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -362,6 +362,58 @@ describe("Doc Injector Extension - Session Reset", () => {
     await triggerInput(api, "testing after reset...");
     const result3 = await triggerAgentStart(api, "You are a helpful assistant.");
     expect((result3 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
+  });
+});
+
+describe("Doc Injector Extension - Startup Init", () => {
+  beforeEach(() => { setupDocs(); setupConfig(); });
+  afterEach(() => { cleanupDocs(); cleanupConfig(); });
+
+  test("deduplicates concurrent session_start initialization", async () => {
+    const api = createMockAPI();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+
+      await Promise.all([
+        api.emit("session_start", {}, { cwd: __dirname }),
+        api.emit("session_start", {}, { cwd: __dirname }),
+      ]);
+
+      const loadLogs = logSpy.mock.calls.filter(([message]) =>
+        typeof message === "string" && message.includes("[doc-injector] Loaded"),
+      );
+
+      expect(loadLogs).toHaveLength(1);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("ignores reload session_start and relies on resources_discover for rebuild", async () => {
+    const api = createMockAPI();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+
+      await api.emit("session_start", { reason: "startup" }, { cwd: __dirname });
+      await api.emit("session_start", { reason: "reload" }, { cwd: __dirname });
+      await api.emit("resources_discover", {}, api._sessionCtx);
+
+      const loadLogs = logSpy.mock.calls.filter(([message]) =>
+        typeof message === "string" && message.includes("[doc-injector] Loaded"),
+      );
+      const reloadLogs = logSpy.mock.calls.filter(([message]) =>
+        typeof message === "string" && message.includes("[doc-injector] Reloaded"),
+      );
+
+      expect(loadLogs).toHaveLength(1);
+      expect(reloadLogs).toHaveLength(1);
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });
 

@@ -66,6 +66,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   // ---- State ----
   let config = loadConfig(process.cwd());
   let registry: DocRegistry | null = null;
+  let initRegistryPromise: Promise<void> | null = null;
   let enabled = true;
   let textBuffer = "";
   let pendingMatches = new Map<string, string[]>(); // filePath → matchedKeywords
@@ -99,11 +100,23 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   };
 
   // ---- Event: session_start ----
-  // Pi fires session_start twice on startup. Skip duplicate calls within
-  // the same extension instance. resources_discover handles reloads.
-  pi.on("session_start", async (_event, ctx) => {
-    if (registry) return;
-    await initRegistry(ctx.cwd);
+  // Pi emits session_start for startup, reload, and real session transitions.
+  // Skip the reload variant because resources_discover will rebuild docs right
+  // after it, and deduplicate any overlapping non-reload inits.
+  pi.on("session_start", async (event, ctx) => {
+    if (event.reason === "reload") return;
+
+    if (initRegistryPromise) {
+      await initRegistryPromise;
+      return;
+    }
+
+    initRegistryPromise = initRegistry(ctx.cwd);
+    try {
+      await initRegistryPromise;
+    } finally {
+      initRegistryPromise = null;
+    }
   });
 
   const reloadRegistry = async (): Promise<number> => {
