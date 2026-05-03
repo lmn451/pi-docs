@@ -38,7 +38,7 @@ export interface DocInjectorConfig {
 /** Default configuration values. */
 export const DEFAULT_CONFIG: DocInjectorConfig = {
   docsPath: "./docs",
-  matchThreshold: 2,
+  matchThreshold: 1,
   contextThreshold: 80,
   recursive: true,
 };

@@ -63,7 +63,7 @@ Create `.pi/doc-injector.json` in your project root to customize behavior:
 ```json
 {
   "docsPath": "./docs",
-  "matchThreshold": 2,
+  "matchThreshold": 1,
   "contextThreshold": 80,
   "recursive": true
 }
@@ -72,7 +72,7 @@ Create `.pi/doc-injector.json` in your project root to customize behavior:
 | Option             | Default    | Description                                              |
 | ------------------ | ---------- | -------------------------------------------------------- |
 | `docsPath`         | `"./docs"` | Path to docs folder (relative to project root)           |
-| `matchThreshold`   | `2`        | Minimum keyword matches required to inject a doc         |
+| `matchThreshold`   | `1`        | Minimum keyword matches required to inject a doc         |
 | `contextThreshold` | `80`       | Skip injection when context usage exceeds this % (0–100) |
 | `recursive`        | `true`     | Scan docs subdirectories recursively                     |
 
