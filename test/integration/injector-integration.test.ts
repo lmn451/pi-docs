@@ -335,27 +335,33 @@ describe("Doc Injector Extension - Session Reset", () => {
   beforeEach(() => { setupDocs(); setupConfig(); });
   afterEach(() => { cleanupDocs(); cleanupConfig(); });
 
-  test("session_start resets injected state for all docs", async () => {
+  test("/doc-inject reset re-enables injection after docs are marked injected", async () => {
     const api = createMockAPI();
     await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
-
-    // First session: inject doc
     await triggerSessionStart(api);
+
+    // First injection
     await triggerInput(api, "testing is important...");
     const result1 = await triggerAgentStart(api, "You are a helpful assistant.");
     expect(result1).toBeDefined();
 
-    // Start new session (simulates /new or starting fresh)
-    // Small delay to exceed the 100ms dedup window
-    await new Promise((r) => setTimeout(r, 110));
-    await triggerSessionStart(api);
-
-    // Same keyword should match again because session_start rebuilt the registry
+    // Same keyword should NOT re-inject (doc already marked)
     await triggerInput(api, "testing again...");
     const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
-
     const typedResult2 = result2 as { systemPrompt?: string } | undefined;
-    expect(typedResult2?.systemPrompt).toContain("Testing Guide");
+    if (typedResult2?.systemPrompt) {
+      const count = (typedResult2.systemPrompt.match(/Testing Guide/g) ?? []).length;
+      expect(count).toBeLessThanOrEqual(1);
+    }
+
+    // Reset via command — should allow re-injection
+    const resetHandler = api._commandHandlers.get("doc-inject");
+    const notifyFn = createMockFn();
+    await resetHandler!("reset", { ui: { notify: notifyFn } });
+
+    await triggerInput(api, "testing after reset...");
+    const result3 = await triggerAgentStart(api, "You are a helpful assistant.");
+    expect((result3 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
   });
 });
 

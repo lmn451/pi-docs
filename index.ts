@@ -98,16 +98,11 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     );
   };
 
-  let lastInitTime = 0;
-
   // ---- Event: session_start ----
-  // Pi fires session_start twice on startup (both with reason "startup").
-  // Use a 2-second dedup window to skip the duplicate. Real session changes
-  // (/new, /resume, /fork) happen well outside this window.
+  // Pi fires session_start twice on startup. Skip duplicate calls within
+  // the same extension instance. resources_discover handles reloads.
   pi.on("session_start", async (_event, ctx) => {
-    const now = Date.now();
-    if (now - lastInitTime < 100) return;
-    lastInitTime = now;
+    if (registry) return;
     await initRegistry(ctx.cwd);
   });
 

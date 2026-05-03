@@ -101,10 +101,17 @@ Injection is also skipped if the current context usage exceeds 80% of the token 
 
 The extension uses a per-session injection model:
 
-- On `session_start`, the registry is rebuilt from scratch, resetting all `injected` flags.
+- On `session_start`, the registry scans `docs/` and indexes all valid documents.
 - Within a session, once a document is injected, it won't be re-injected automatically.
 - Use `/doc-inject reset` to manually reset all flags and allow docs to be injected again.
 - Use `/doc-inject list` to see which docs have been injected (✅) and which are pending (⬜).
+
+### Injection Timing
+
+- **User messages**: matched via the `input` event, injected before the assistant
+  responds — **same turn**, no delay.
+- **Assistant streaming**: if the assistant mentions a NEW keyword mid-response,
+  generation is aborted and restarted with the doc injected immediately.
 
 ### System Prompt Lifecycle
 
