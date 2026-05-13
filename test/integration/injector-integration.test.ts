@@ -89,6 +89,7 @@ interface MockExtensionAPI {
   on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => void;
   emit: (event: string, data: unknown, ctx: unknown) => Promise<unknown>;
   registerCommand: (name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) => void;
+  registerTool: (def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }) => void;
   sendUserMessage: ReturnType<typeof createMockFn>;
   _handlers: Map<string, Array<(event: unknown, ctx: unknown) => unknown>>;
   _sessionCtx: {
@@ -119,7 +120,7 @@ const createMockAPI = (): MockExtensionAPI => {
       ui: { notify: notifyFn },
       getContextUsage: () => {
         const result = getContextUsageFn();
-        return result as { tokens: number; percent: number } | null;
+        return result as unknown as { tokens: number; percent: number } | null;
       },
       isIdle: () => isIdle,
       abort: abortFn,
@@ -132,6 +133,9 @@ const createMockAPI = (): MockExtensionAPI => {
     },
     registerCommand(name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) {
       commandHandlers.set(name, opts.handler as (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>);
+    },
+    registerTool(_def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }) {
+      // no-op for tests: the extension registers the tool, tests verify it exists
     },
     async emit(event: string, data: unknown, ctx: unknown) {
       const handlers = this._handlers.get(event) ?? [];

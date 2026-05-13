@@ -53,18 +53,21 @@
  * is cleared after injection, and `markInjected()` operates on the registry's
  * current entries, not the stale array.
  */
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import { resolve } from "node:path";
+import { loadCache, saveCache } from "./cache";
 import { loadConfig } from "./config";
 import { buildSystemPromptAppend, notifyInjection } from "./injector";
+import { buildKeywordGenPrompt } from "./keyword-llm";
 import { extractText, KeywordMatcher } from "./matcher";
 import { DocRegistry } from "./registry";
-import { DEFAULT_MATCHER_OPTIONS, type DocEntry, type MatchResult } from "./types";
+import { DEFAULT_MATCHER_OPTIONS, type DocEntry, type MatchResult, type KeywordCache, type CacheEntry } from "./types";
 import { registerCommands } from "./commands";
 
 export default async function docInjectorExtension(pi: ExtensionAPI) {
   // ---- State ----
-  let config = loadConfig(process.cwd());
+  let config = await loadConfig(process.cwd());
   let registry: DocRegistry | null = null;
   let initRegistryPromise: Promise<void> | null = null;
   let enabled = true;
@@ -72,17 +75,50 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   let pendingMatches = new Map<string, string[]>(); // filePath → matchedKeywords
   let abortingForInjection = false; // guard against cascading aborts
 
+  // P5.4b — Guard flags for LLM keyword generation
+  let keywordGenInFlight = false;
+  let llmBatchesCompleted = 0;
+  let llmTotalFiles = 0;
+  let cache: KeywordCache = { version: 1, files: {} };
+
   // ---- Helpers ----
   const getRegistry = () => registry;
   const getEnabled = () => enabled;
   const setEnabled = (v: boolean) => {
     enabled = v;
   };
+  const getConfig = () => config;
+
+  const safeSaveCache = async (cwd: string, dirtyEntries: Record<string, CacheEntry>) => {
+    // MAJOR-2 fix: before saveCache, re-read cache from disk to merge
+    // LLM-written entries that may have landed during the scan.
+    const freshCache = await loadCache(cwd);
+    const mergedCache: KeywordCache = { version: 1, files: {} };
+
+    // Start with fresh (disk) entries — includes any LLM writes during scan
+    for (const [key, entry] of Object.entries(freshCache.files)) {
+      mergedCache.files[key] = entry;
+    }
+
+    // Overlay dirty entries from this scan (scan results take precedence)
+    for (const [key, entry] of Object.entries(dirtyEntries)) {
+      mergedCache.files[key] = entry;
+    }
+
+    await saveCache(cwd, mergedCache);
+  };
 
   const initRegistry = async (cwd: string) => {
-    config = loadConfig(cwd);
+    config = await loadConfig(cwd);
     const docsPath = resolve(cwd, config.docsPath);
-    registry = await DocRegistry.create(docsPath, config.recursive);
+    cache = await loadCache(cwd);
+    registry = await DocRegistry.create(docsPath, config, cache);
+
+    const dirty = registry.getDirtyCache();
+    if (Object.keys(dirty).length > 0) {
+      await safeSaveCache(cwd, dirty);
+    }
+
     const count = registry.getEntries().length;
     if (count > 0) {
       console.log(`[doc-injector] Loaded ${count} documents from ${docsPath}`);
@@ -99,11 +135,67 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     );
   };
 
+  // P5.4f — generateKeywordsLLM: sets keywordGenInFlight and sends a user message
+  // with the prompt built by buildKeywordGenPrompt. The LLM will respond by
+  // calling the _doc_injector_keywords tool.
+  const generateKeywordsLLM = async (
+    files: Array<{ path: string; snippet: string; existingKeywords: string[] }>,
+  ) => {
+    keywordGenInFlight = true;
+    const prompt = buildKeywordGenPrompt(files);
+    pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+  };
+
+  // P5.4a — Inline tool registration (BLOCKER-2 fix).
+  // Registered inside the factory for closure access to cache, cwd, saveCache,
+  // and llmBatchesCompleted. Uses real mtime from stat().
+  pi.registerTool({
+    name: "_doc_injector_keywords",
+    label: "Doc Injector Keywords",
+    description:
+      "Save LLM-generated keywords for documentation files. Call this tool with the keywords array after analyzing file snippets.",
+    parameters: Type.Object({
+      keywords: Type.Array(
+        Type.Object({
+          path: Type.String(),
+          keywords: Type.Array(Type.String()),
+        }),
+      ),
+    }),
+    execute: async (_id, params, _signal, _onUpdate, ctx) => {
+      const generated = params.keywords as Array<{ path: string; keywords: string[] }>;
+      const { stat } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      let saved = 0;
+      for (const item of generated) {
+        const absPath = join(ctx.cwd, item.path);
+        const fileStat = await stat(absPath).catch(() => null);
+        cache.files[item.path] = {
+          mtimeMs: fileStat?.mtimeMs ?? Date.now(),
+          keywords: item.keywords.slice(0, 20),
+        };
+        saved++;
+      }
+      await saveCache(ctx.cwd, cache);
+      llmBatchesCompleted++;
+      llmTotalFiles += saved;
+      return {
+        content: [{ type: "text" as const, text: `Keywords saved for ${saved} files.` }],
+        details: undefined as never,
+      };
+    },
+  });
+
   // ---- Event: session_start ----
   // Pi emits session_start for startup, reload, and real session transitions.
   // Skip the reload variant because resources_discover will rebuild docs right
   // after it, and deduplicate any overlapping non-reload inits.
   pi.on("session_start", async (event, ctx) => {
+    // P5.4d — Safety unbind: clear all LLM keyword gen state on session start
+    keywordGenInFlight = false;
+    llmBatchesCompleted = 0;
+    llmTotalFiles = 0;
+
     if (event.reason === "reload") return;
 
     if (initRegistryPromise) {
@@ -119,17 +211,30 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
   });
 
-  const reloadRegistry = async (): Promise<number> => {
+  const reloadRegistry = async (cwd?: string): Promise<number> => {
     if (!registry) throw new Error("No registry loaded");
+    const effectiveCwd = cwd ?? process.cwd();
+
+    // Reload cache from disk to pick up LLM-generated entries
+    const freshCache = await loadCache(effectiveCwd);
+    cache = freshCache;
+    registry.updateCache(cache);
+
     await registry.rebuild();
+
+    const dirty = registry.getDirtyCache();
+    if (Object.keys(dirty).length > 0) {
+      await safeSaveCache(effectiveCwd, dirty);
+    }
+
     const count = registry.getEntries().length;
     console.log(`[doc-injector] Reloaded: ${count} documents`);
     return count;
   };
 
   // ---- Event: resources_discover (reload) ----
-  pi.on("resources_discover", async (_event, _ctx) => {
-    await reloadRegistry();
+  pi.on("resources_discover", async (_event, ctx) => {
+    await reloadRegistry(ctx.cwd);
   });
 
   // ---- Event: input (user message matching) ----
@@ -138,6 +243,17 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   // BEFORE before_agent_start fires, so docs are injected in time for
   // the assistant's immediate response.
   pi.on("input", async (event, _ctx) => {
+    // P5.4d — Safety unbind: if the user is typing interactively, clear all
+    // LLM keyword gen state (they may have aborted the generation).
+    if (event.source === "interactive") {
+      keywordGenInFlight = false;
+      llmBatchesCompleted = 0;
+      llmTotalFiles = 0;
+    }
+
+    // P5.4b — Guard: skip keyword matching during LLM keyword generation
+    if (keywordGenInFlight) return;
+
     if (!enabled || !registry) return;
     if (!event.text) return;
 
@@ -155,6 +271,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   // non-injected docs, abort the current generation and restart with the
   // injected context — no waiting for the next turn.
   pi.on("message_update", async (event, ctx) => {
+    // P5.4b — Guard: skip auto-abort logic during LLM keyword generation
+    if (keywordGenInFlight) return;
+
     if (!enabled || !registry) return;
 
     const msg = event.message;
@@ -195,6 +314,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
 
   // ---- Event: before_agent_start (inject into system prompt) ----
   pi.on("before_agent_start", async (event, ctx) => {
+    // P5.4b — Guard: skip injection during LLM keyword generation
+    if (keywordGenInFlight) return;
+
     if (!enabled || !registry || pendingMatches.size === 0) return;
 
     const matchedEntries: DocEntry[] = [];
@@ -235,8 +357,19 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     };
   });
 
-  // ---- Event: agent_end (restart after auto-abort) ----
-  pi.on("agent_end", async () => {
+  // ---- Event: agent_end (restart after auto-abort + LLM batch summary) ----
+  pi.on("agent_end", async (event, ctx) => {
+    // P5.4c — Summary notification from agent_end (BLOCKER-3)
+    keywordGenInFlight = false;
+    if (llmBatchesCompleted > 0) {
+      await ctx.ui.notify(
+        `Doc keywords: ${llmTotalFiles} files across ${llmBatchesCompleted} batch(es)`,
+        "info",
+      );
+      llmBatchesCompleted = 0;
+      llmTotalFiles = 0;
+    }
+
     if (abortingForInjection) {
       abortingForInjection = false;
       // Send a follow-up message to restart the turn.
@@ -251,5 +384,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     getEnabled,
     setEnabled,
     reloadRegistry,
+    getConfig,
+    generateKeywordsLLM,
   });
 }
