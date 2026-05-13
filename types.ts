@@ -54,7 +54,7 @@ export interface CacheEntry {
 /** Result from binary content detection. */
 export interface BinaryDetectResult {
   isBinary: boolean;
-  reason: "extension" | "nullByte" | "nonPrintable" | "none";
+  reason: "nullByte" | "nonPrintable" | "none";
 }
 
 /** Glob filter for include/exclude pattern matching. */
@@ -95,7 +95,7 @@ export const DEFAULT_CONFIG: DocInjectorConfig = {
   matchThreshold: 1,
   contextThreshold: 80,
   recursive: true,
-  include: ["**/*.md"],
+  include: ["**/*.md", "**/*.txt"],
   exclude: ["node_modules/**", ".git/**", "dist/**", "build/**", ".next/**"],
   maxFileSize: 102400, // 100 KB
   autoKeywords: true,

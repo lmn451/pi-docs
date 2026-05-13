@@ -1,19 +1,15 @@
 /**
  * Document Registry — scans a docs folder, parses frontmatter, maintains index.
  *
- * Binary detection pipeline (BLOCKER-1 fix — all checks before readFile):
- * 1. isBinaryExtension(filePath) → skip (no I/O)
- * 2. KNOWN_TEXT_EXTENSIONS.has(ext) → skip content sampling (no I/O)
- * 3. isBinaryContent(filePath) → skip if binary (reads first 8KB only)
- * 4. stat(filePath) → size check, mtime check, cache hit
- * 5. readFile(filePath) → parse frontmatter or generate keywords
+ * Processing pipeline:
+ * 1. stat(filePath) → size check, mtime check, cache hit
+ * 2. readFile(filePath) → parse frontmatter or generate keywords
  */
 import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
-import type { DocEntry, DocInjectorConfig, KeywordCache, CacheEntry } from "./types";
+import type { DocEntry, DocInjectorConfig, KeywordCache } from "./types";
 import { createGlobFilter } from "./globber";
-import { isBinaryExtension, isBinaryContent, KNOWN_TEXT_EXTENSIONS } from "./binary-detect";
 import { generateKeywords } from "./keyword-gen";
 
 /**
@@ -292,35 +288,12 @@ export class DocRegistry {
     preserved: Map<string, boolean>,
   ): Promise<DocEntry | null> {
     try {
-      // ═══ PRE-READ BINARY CHECKS ═══
-
-      // Step 1: Extension blacklist (zero I/O)
-      if (isBinaryExtension(filePath)) {
-        console.warn(`[doc-injector] Skipping ${relativePath}: binary extension`);
-        return null;
-      }
-
-      // Step 2: Known-text extension whitelist — skip content sampling
-      const ext = extname(filePath).toLowerCase();
-      const isKnownText = KNOWN_TEXT_EXTENSIONS.has(ext);
-
-      // Step 3: Binary content check (only for unknown-extension files, reads first 8KB)
-      if (!isKnownText) {
-        const binResult = await isBinaryContent(filePath);
-        if (binResult.isBinary) {
-          console.warn(
-            `[doc-injector] Skipping ${relativePath}: binary content (${binResult.reason})`,
-          );
-          return null;
-        }
-      }
-
       // ═══ METADATA + CACHE ═══
 
-      // Step 4: Stat the file for size and mtime
+      // Step 1: Stat the file for size and mtime
       const fileStat = await stat(filePath);
 
-      // Step 5: Skip files exceeding maxFileSize
+      // Step 2: Skip files exceeding maxFileSize
       if (fileStat.size > this.config.maxFileSize) {
         console.warn(
           `[doc-injector] Skipping ${relativePath}: size ${fileStat.size} > max ${this.config.maxFileSize}`,
