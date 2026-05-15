@@ -29,7 +29,6 @@ export interface DocEntry {
 export interface MatcherOptions {
   matchThreshold: number;
   caseSensitive: boolean;
-  wordBoundary: boolean;
 }
 
 /** Result from a keyword match. */
@@ -108,5 +107,4 @@ export const DEFAULT_CONFIG: DocInjectorConfig = {
 export const DEFAULT_MATCHER_OPTIONS: MatcherOptions = {
   matchThreshold: DEFAULT_CONFIG.matchThreshold,
   caseSensitive: false,
-  wordBoundary: true,
 };

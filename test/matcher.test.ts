@@ -28,15 +28,6 @@ describe("KeywordMatcher", () => {
     expect(r2[0].matchedKeywords).toContain("testing");
   });
 
-  test("substring matches with includes (wordBoundary=false)", () => {
-    const entries = [makeEntry("art.md", ["art"])];
-    const matcher = new KeywordMatcher(entries, { wordBoundary: false });
-
-    // With wordBoundary=false, 'art' matches in any text containing it
-    expect(matcher.match("the art of coding")).toHaveLength(1);
-    expect(matcher.match("listing all artifacts")).toHaveLength(1);
-  });
-
   test("case-insensitive matching", () => {
     const entries = [makeEntry("test.md", ["test", "assert"])];
     const matcher = new KeywordMatcher(entries, { matchThreshold: 1 });
@@ -48,7 +39,7 @@ describe("KeywordMatcher", () => {
 
   test("case-sensitive matching when enabled", () => {
     const entries = [makeEntry("test.md", ["TEST"])];
-    const matcher = new KeywordMatcher(entries, { caseSensitive: true, wordBoundary: true, matchThreshold: 1 });
+    const matcher = new KeywordMatcher(entries, { caseSensitive: true, matchThreshold: 1 });
 
     expect(matcher.match("this is a test")).toHaveLength(0);
     expect(matcher.match("this is a TEST")).toHaveLength(1);
@@ -84,7 +75,7 @@ describe("KeywordMatcher", () => {
       makeEntry("brackets.md", ["[test]", "array"]),
       makeEntry("pipe.md", ["a|b", "alternative"]),
     ];
-    const matcher = new KeywordMatcher(entries, { matchThreshold: 1, wordBoundary: true });
+    const matcher = new KeywordMatcher(entries, { matchThreshold: 1 });
 
     // Dollar sign
     const r1 = matcher.match("the cost is $50 total");
@@ -126,7 +117,7 @@ describe("KeywordMatcher", () => {
     const entries = [
       makeEntry("consecutive.md", ["$$", "$^", "**"]),
     ];
-    const matcher = new KeywordMatcher(entries, { matchThreshold: 1, wordBoundary: true });
+    const matcher = new KeywordMatcher(entries, { matchThreshold: 1 });
 
     const r1 = matcher.match("use $$ for display math");
     expect(r1.length).toBeGreaterThan(0);
