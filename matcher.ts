@@ -72,33 +72,13 @@ export class KeywordMatcher {
     return results;
   }
 
-
   /**
    * Check if a single keyword matches the given text.
-   * Escapes regex special characters before constructing word-boundary pattern.
-   * Falls back to simple `includes` when wordBoundary is disabled.
+   * Uses simple substring inclusion (case-insensitive by default).
    */
   private keywordMatches(text: string, keyword: string): boolean {
     const search = this.options.caseSensitive ? text : text.toLowerCase();
     const kw = this.options.caseSensitive ? keyword : keyword.toLowerCase();
-
-    if (this.options.wordBoundary) {
-      // Escape special regex chars in keyword
-      const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const flags = this.options.caseSensitive ? "" : "i";
-
-      // \\b only works between word chars. For keywords starting/ending with
-      // non-word chars (e.g. "^", "$$", "func()"), use whitespace/string-boundary
-      // anchors instead.
-      const startsWord = /^\w/.test(kw);
-      const endsWord = /\w$/.test(kw);
-      const prefix = startsWord ? "\\b" : "(?:^|\\s)";
-      const suffix = endsWord ? "\\b" : "(?:$|\\s)";
-
-      const regex = new RegExp(`${prefix}${escaped}${suffix}`, flags);
-      return regex.test(search);
-    }
-
     return search.includes(kw);
   }
 }

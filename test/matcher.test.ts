@@ -28,12 +28,13 @@ describe("KeywordMatcher", () => {
     expect(r2[0].matchedKeywords).toContain("testing");
   });
 
-  test("substring does NOT match (word boundary)", () => {
-    const entries = [makeEntry("artifact.md", ["artifact"])];
-    const matcher = new KeywordMatcher(entries);
+  test("substring matches with includes (wordBoundary=false)", () => {
+    const entries = [makeEntry("art.md", ["art"])];
+    const matcher = new KeywordMatcher(entries, { wordBoundary: false });
 
-    expect(matcher.match("the art of coding")).toHaveLength(0);
-    expect(matcher.match("listing all artifacts")).toHaveLength(0);
+    // With wordBoundary=false, 'art' matches in any text containing it
+    expect(matcher.match("the art of coding")).toHaveLength(1);
+    expect(matcher.match("listing all artifacts")).toHaveLength(1);
   });
 
   test("case-insensitive matching", () => {
@@ -61,7 +62,7 @@ describe("KeywordMatcher", () => {
 
     const r2 = matcher.match("unit testing with assert");
     expect(r2.length).toBeGreaterThan(0);
-    expect(r2[0].hitCount).toBe(3);
+    expect(r2[0].hitCount).toBe(4);
   });
 
   test("already-injected docs excluded", () => {

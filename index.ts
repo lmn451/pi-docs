@@ -172,7 +172,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
         const fileStat = await stat(absPath).catch(() => null);
         cache.files[item.path] = {
           mtimeMs: fileStat?.mtimeMs ?? Date.now(),
-          keywords: item.keywords.slice(0, 20),
+          keywords: item.keywords.map((k) => k.toLowerCase()).slice(0, 20),
         };
         saved++;
       }
