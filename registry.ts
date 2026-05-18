@@ -8,7 +8,7 @@
 import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
-import type { DocEntry, DocInjectorConfig, KeywordCache } from "./types";
+import type { CacheEntry, DocEntry, DocInjectorConfig, KeywordCache } from "./types";
 import { createGlobFilter } from "./globber";
 import { generateKeywords } from "./keyword-gen";
 

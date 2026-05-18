@@ -92,6 +92,7 @@ interface MockExtensionAPI {
   registerTool: (def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }) => void;
   sendUserMessage: ReturnType<typeof createMockFn>;
   _handlers: Map<string, Array<(event: unknown, ctx: unknown) => unknown>>;
+  _tools: Map<string, { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }>;
   _sessionCtx: {
     cwd: string;
     ui: { notify: ReturnType<typeof createMockFn> };
@@ -109,10 +110,12 @@ const createMockAPI = (): MockExtensionAPI => {
   const abortFn = createMockFn();
   const sendUserMessageFn = createMockFn();
   const commandHandlers = new Map<string, (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>>();
+  const tools = new Map<string, { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }>();
   let isIdle = true;
 
   const api: MockExtensionAPI = {
     _handlers: new Map(),
+    _tools: tools,
     _commandHandlers: commandHandlers,
     sendUserMessage: sendUserMessageFn,
     _sessionCtx: {
@@ -134,8 +137,8 @@ const createMockAPI = (): MockExtensionAPI => {
     registerCommand(name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) {
       commandHandlers.set(name, opts.handler as (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>);
     },
-    registerTool(_def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }) {
-      // no-op for tests: the extension registers the tool, tests verify it exists
+    registerTool(def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }) {
+      tools.set(def.name, def);
     },
     async emit(event: string, data: unknown, ctx: unknown) {
       const handlers = this._handlers.get(event) ?? [];
@@ -452,6 +455,34 @@ Added after initial load.
 
     const typedResult = result as { systemPrompt?: string } | undefined;
     expect(typedResult?.systemPrompt).toContain("New Documentation");
+  });
+  test("reuses LLM-generated keywords after resources_discover reload", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    const tool = api._tools.get("_doc_injector_keywords");
+    expect(tool).toBeDefined();
+
+    await tool!.execute(
+      "tool-call-id",
+      { keywords: [{ path: "no-frontmatter.md", keywords: ["oauth", "token"] }] },
+      undefined,
+      undefined,
+      api._sessionCtx,
+    );
+
+    await api.emit("resources_discover", {}, api._sessionCtx);
+
+    const listHandler = api._commandHandlers.get("doc-inject");
+    expect(listHandler).toBeDefined();
+    const notifyFn = createMockFn();
+    await listHandler!("list", { ui: { notify: notifyFn } });
+
+    const notification = (notifyFn as unknown as { calls: unknown[][] }).calls[0][0] as string;
+    expect(notification).toContain("[cache] no-frontmatter.md");
+    expect(notification).toContain("oauth");
+    expect(notification).toContain("token");
   });
 });
 

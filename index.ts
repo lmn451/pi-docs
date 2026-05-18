@@ -165,10 +165,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     execute: async (_id, params, _signal, _onUpdate, ctx) => {
       const generated = params.keywords as Array<{ path: string; keywords: string[] }>;
       const { stat } = await import("node:fs/promises");
-      const { join } = await import("node:path");
       let saved = 0;
       for (const item of generated) {
-        const absPath = join(ctx.cwd, item.path);
+        const absPath = resolve(ctx.cwd, config.docsPath, item.path);
         const fileStat = await stat(absPath).catch(() => null);
         cache.files[item.path] = {
           mtimeMs: fileStat?.mtimeMs ?? Date.now(),

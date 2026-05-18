@@ -9,6 +9,7 @@
   },
   "files": [
     "*.ts",
+    "*.d.ts",
     "docs/**/*.md",
     "README.md"
   ],
