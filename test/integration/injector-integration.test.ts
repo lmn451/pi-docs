@@ -588,6 +588,7 @@ describe("Doc Injector Extension - Auto-Abort on Stream", () => {
   });
 
   test("agent_end sends follow-up message to restart after abort", async () => {
+    vi.useFakeTimers();
     const api = createMockAPI();
     await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
@@ -600,13 +601,15 @@ describe("Doc Injector Extension - Auto-Abort on Stream", () => {
       api._sessionCtx,
     );
 
-    // Emit agent_end — should trigger sendMessage (workaround for followUp bug)
+    // Emit agent_end — should trigger sendUserMessage (deferred via setTimeout)
     await api.emit("agent_end", {}, api._sessionCtx);
 
-    const sendCalls = (api.sendMessage as unknown as { calls: unknown[][] }).calls;
+    // Run the setTimeout(0) callback
+    vi.runAllTimers();
+
+    const sendCalls = (api.sendUserMessage as unknown as { calls: unknown[][] }).calls;
     expect(sendCalls.length).toBe(1);
-    expect(sendCalls[0][0]).toEqual({ customType: "doc-injector-continue", content: "continue" });
-    expect(sendCalls[0][1]).toEqual({ triggerTurn: true, deliverAs: "followUp" });
+    expect(sendCalls[0][0]).toBe('continue');
   });
 
   test("does NOT send follow-up in agent_end without prior abort", async () => {
