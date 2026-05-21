@@ -1,3 +1,10 @@
 # Test fixtures (generated at runtime)
 test/integration/fixtures/
 test/integration/.pi/
+
+# Local pi config and cache
+.pi/settings.json
+.pi/doc-injector-cache.json
+
+# Planning artifacts
+plan/
