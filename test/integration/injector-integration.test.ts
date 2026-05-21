@@ -91,6 +91,7 @@ interface MockExtensionAPI {
   registerCommand: (name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) => void;
   registerTool: (def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }) => void;
   sendUserMessage: ReturnType<typeof createMockFn>;
+  sendMessage: ReturnType<typeof createMockFn>;
   _handlers: Map<string, Array<(event: unknown, ctx: unknown) => unknown>>;
   _tools: Map<string, { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }>;
   _sessionCtx: {
@@ -109,6 +110,7 @@ const createMockAPI = (): MockExtensionAPI => {
   const getContextUsageFn = createMockFn();
   const abortFn = createMockFn();
   const sendUserMessageFn = createMockFn();
+    const sendMessageFn = createMockFn();
   const commandHandlers = new Map<string, (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>>();
   const tools = new Map<string, { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }>();
   let isIdle = true;
@@ -118,6 +120,7 @@ const createMockAPI = (): MockExtensionAPI => {
     _tools: tools,
     _commandHandlers: commandHandlers,
     sendUserMessage: sendUserMessageFn,
+    sendMessage: sendMessageFn,
     _sessionCtx: {
       cwd: __dirname,
       ui: { notify: notifyFn },
@@ -484,6 +487,31 @@ Added after initial load.
     expect(notification).toContain("oauth");
     expect(notification).toContain("token");
   });
+
+  test("skips cache entry for non-existent files in _doc_injector_keywords", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    const tool = api._tools.get("_doc_injector_keywords");
+    expect(tool).toBeDefined();
+
+    // Mix of existing and non-existing files
+    const result = await tool!.execute(
+      "tool-call-id",
+      { keywords: [
+        { path: "testing-guide.md", keywords: ["test"] },
+        { path: "nonexistent-file-12345.md", keywords: ["ghost"] },
+      ]},
+      undefined,
+      undefined,
+      api._sessionCtx,
+    );
+
+    // Should report 1 saved (not 2)
+    const text = result.content[0].text;
+    expect(text).toContain("1"); // Only 1 file saved, not 2
+  });
 });
 
 describe("Doc Injector Extension - Auto-Abort on Stream", () => {
@@ -572,13 +600,13 @@ describe("Doc Injector Extension - Auto-Abort on Stream", () => {
       api._sessionCtx,
     );
 
-    // Emit agent_end — should trigger sendUserMessage("continue")
+    // Emit agent_end — should trigger sendMessage (workaround for followUp bug)
     await api.emit("agent_end", {}, api._sessionCtx);
 
-    const sendCalls = (api.sendUserMessage as unknown as { calls: unknown[][] }).calls;
+    const sendCalls = (api.sendMessage as unknown as { calls: unknown[][] }).calls;
     expect(sendCalls.length).toBe(1);
-    expect(sendCalls[0][0]).toBe("continue");
-    expect(sendCalls[0][1]).toEqual({ deliverAs: "followUp" });
+    expect(sendCalls[0][0]).toEqual({ customType: "doc-injector-continue", content: "continue" });
+    expect(sendCalls[0][1]).toEqual({ triggerTurn: true, deliverAs: "followUp" });
   });
 
   test("does NOT send follow-up in agent_end without prior abort", async () => {

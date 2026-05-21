@@ -169,8 +169,12 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       for (const item of generated) {
         const absPath = resolve(ctx.cwd, config.docsPath, item.path);
         const fileStat = await stat(absPath).catch(() => null);
+        if (!fileStat) {
+          console.warn(`[doc-injector] Skipping keyword save for ${item.path}: file not found`);
+          continue;
+        }
         cache.files[item.path] = {
-          mtimeMs: fileStat?.mtimeMs ?? Date.now(),
+          mtimeMs: fileStat.mtimeMs,
           keywords: item.keywords.map((k) => k.toLowerCase()).slice(0, 20),
         };
         saved++;
@@ -373,7 +377,15 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       abortingForInjection = false;
       // Send a follow-up message to restart the turn.
       // before_agent_start will inject the matched docs into context.
-      pi.sendUserMessage("continue", { deliverAs: "followUp" });
+      //
+      // BUG WORKAROUND: sendUserMessage with deliverAs="followUp" doesn't work
+      // after agent_end when isStreaming=false (the streaming ended due to abort).
+      // Instead we use sendMessage with triggerTurn:false, which appends to messages
+      // and emits events - the next user turn will pick up the injected docs.
+      pi.sendMessage(
+        { customType: "doc-injector-continue", content: "continue" },
+        { triggerTurn: true, deliverAs: "followUp" },
+      );
     }
   });
 
