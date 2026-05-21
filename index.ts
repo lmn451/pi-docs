@@ -300,8 +300,10 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
 
     if (hasNew && !ctx.isIdle() && !abortingForInjection) {
+      console.log('[doc-injector] message_update: aborting for injection, matched keywords:', results.map(r => r.matchedKeywords).flat());
       abortingForInjection = true;
       ctx.abort();
+      console.log('[doc-injector] message_update: abort called');
     }
   });
 
@@ -375,17 +377,23 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
 
     if (abortingForInjection) {
       abortingForInjection = false;
+      console.log('[doc-injector] agent_end: sending continue message with triggerTurn:true');
       // Send a follow-up message to restart the turn.
       // before_agent_start will inject the matched docs into context.
       //
-      // BUG WORKAROUND: sendUserMessage with deliverAs="followUp" doesn't work
-      // after agent_end when isStreaming=false (the streaming ended due to abort).
-      // Instead we use sendMessage with triggerTurn:false, which appends to messages
-      // and emits events - the next user turn will pick up the injected docs.
-      pi.sendMessage(
-        { customType: "doc-injector-continue", content: "continue" },
-        { triggerTurn: true, deliverAs: "followUp" },
-      );
+      // Use sendMessage with triggerTurn:true — calls agent.prompt() directly
+      // when agent is idle, bypassing the isStreaming check.
+      try {
+        pi.sendMessage(
+          { customType: "doc-injector-continue", content: "continue" },
+          { triggerTurn: true, deliverAs: "followUp" },
+        );
+        console.log('[doc-injector] agent_end: sendMessage completed');
+      } catch (err) {
+        console.error('[doc-injector] agent_end: sendMessage failed:', err);
+      }
+    } else {
+      console.log('[doc-injector] agent_end: abortingForInjection is false, skipping');
     }
   });
 
