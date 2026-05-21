@@ -2,6 +2,15 @@ import { parseFrontmatter, DocRegistry } from "../registry";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
+import { DEFAULT_CONFIG, type DocInjectorConfig } from "../types";
+
+/** Minimal config for registry tests — scans .md files only. */
+const TEST_CONFIG: DocInjectorConfig = {
+  ...DEFAULT_CONFIG,
+  docsPath: "./.test-docs-recursive",
+  include: ["**/*.md"],
+  exclude: [],
+};
 
 describe("parseFrontmatter", () => {
   test("parses flow array keywords", () => {
@@ -79,6 +88,103 @@ Content.
     expect(result).not.toBeNull();
     expect(result!.title).toBe("Multi-word Title");
   });
+
+  // --- Multi-style frontmatter (Phase 3) ---
+
+  test("parses C-style block comment frontmatter", () => {
+    const content = `/*---
+title: CStyle Doc
+keywords: [cstyle, block, comment]
+---*/
+
+Body content here.
+`;
+    const result = parseFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("CStyle Doc");
+    expect(result!.keywords).toEqual(["cstyle", "block", "comment"]);
+    expect(result!.body).toContain("Body content here.");
+  });
+
+  test("parses HTML comment frontmatter", () => {
+    const content = `<!--
+title: HTML Doc
+keywords: [html, comment, web]
+-->
+
+Body content here.
+`;
+    const result = parseFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("HTML Doc");
+    expect(result!.keywords).toEqual(["html", "comment", "web"]);
+    expect(result!.body).toContain("Body content here.");
+  });
+
+  test("parses slash-slash comment frontmatter", () => {
+    const content = `//---
+title: SlashSlash Doc
+keywords: [slash, comment]
+
+Body content here.
+`;
+    const result = parseFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("SlashSlash Doc");
+    expect(result!.keywords).toEqual(["slash", "comment"]);
+    expect(result!.body).toContain("Body content here.");
+  });
+
+  test("parses slash-slash frontmatter with // prefixes", () => {
+    const content = `//---
+// title: Prefixed Doc
+// keywords: [prefixed, lines]
+//
+
+Body content here.
+`;
+    const result = parseFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("Prefixed Doc");
+    expect(result!.keywords).toEqual(["prefixed", "lines"]);
+    expect(result!.body).toContain("Body content here.");
+  });
+
+  test("returns null for C-style with no keywords", () => {
+    const content = `/*---
+title: No Keywords
+---*/
+
+Body.
+`;
+    expect(parseFrontmatter(content)).toBeNull();
+  });
+
+  test("returns null for HTML with no keywords", () => {
+    const content = `<!--
+title: No Keywords
+-->
+
+Body.
+`;
+    expect(parseFrontmatter(content)).toBeNull();
+  });
+
+  test("returns null for slash-slash with no keywords", () => {
+    const content = `//---
+title: No Keywords
+
+Body.
+`;
+    expect(parseFrontmatter(content)).toBeNull();
+  });
+
+  test("returns null for content without any frontmatter style", () => {
+    const content = `# Just a markdown doc
+No frontmatter here.
+`;
+    expect(parseFrontmatter(content)).toBeNull();
+  });
 });
 
 describe("DocRegistry recursive scanning", () => {
@@ -102,7 +208,7 @@ describe("DocRegistry recursive scanning", () => {
   });
 
   test("recursive=true finds nested .md files", async () => {
-    const reg = await DocRegistry.create(tmpDir, true);
+    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: true });
     const entries = reg.getEntries();
     expect(entries.length).toBe(2);
     const relPaths = entries.map((e) => e.relativePath);
@@ -111,7 +217,7 @@ describe("DocRegistry recursive scanning", () => {
   });
 
   test("recursive=false only finds top-level .md files", async () => {
-    const reg = await DocRegistry.create(tmpDir, false);
+    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: false });
     const entries = reg.getEntries();
     expect(entries.length).toBe(1);
     expect(entries[0].fileName).toBe("root.md");
@@ -119,7 +225,7 @@ describe("DocRegistry recursive scanning", () => {
   });
 
   test("entries have correct relativePath", async () => {
-    const reg = await DocRegistry.create(tmpDir, true);
+    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: true });
     const nested = reg.getEntries().find((e) => e.title === "Nested");
     expect(nested).toBeDefined();
     expect(nested!.relativePath).toContain("nested.md");
@@ -129,6 +235,7 @@ describe("DocRegistry recursive scanning", () => {
 
 describe("DocRegistry mutation methods", () => {
   const tmpDir = join(process.cwd(), ".test-docs-mutation");
+  const testConfig: DocInjectorConfig = { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: false };
 
   beforeEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
@@ -148,7 +255,7 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("markInjected marks only specified entries", async () => {
-    const reg = await DocRegistry.create(tmpDir, false);
+    const reg = await DocRegistry.create(tmpDir, testConfig);
     const entries = reg.getEntries();
     expect(entries.length).toBe(2);
 
@@ -161,7 +268,7 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("markAllNotInjected resets all entries", async () => {
-    const reg = await DocRegistry.create(tmpDir, false);
+    const reg = await DocRegistry.create(tmpDir, testConfig);
     const entries = reg.getEntries();
     reg.markInjected(entries.map((e) => e.filePath));
     expect(reg.getEntries().every((e) => e.injected)).toBe(true);
@@ -172,7 +279,7 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("reset is alias for markAllNotInjected", async () => {
-    const reg = await DocRegistry.create(tmpDir, false);
+    const reg = await DocRegistry.create(tmpDir, testConfig);
     reg.markInjected(reg.getEntries().map((e) => e.filePath));
     expect(reg.getEntries().every((e) => e.injected)).toBe(true);
 
@@ -181,19 +288,19 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("markInjected with empty array does nothing", async () => {
-    const reg = await DocRegistry.create(tmpDir, false);
+    const reg = await DocRegistry.create(tmpDir, testConfig);
     reg.markInjected([]);
     expect(reg.getEntries().every((e) => !e.injected)).toBe(true);
   });
 
   test("markInjected with nonexistent path does nothing", async () => {
-    const reg = await DocRegistry.create(tmpDir, false);
+    const reg = await DocRegistry.create(tmpDir, testConfig);
     reg.markInjected(["/nonexistent/path.md"]);
     expect(reg.getEntries().every((e) => !e.injected)).toBe(true);
   });
 
   test("getNonInjectedEntries respects markInjected", async () => {
-    const reg = await DocRegistry.create(tmpDir, false);
+    const reg = await DocRegistry.create(tmpDir, testConfig);
     const entries = reg.getEntries();
     reg.markInjected([entries[0].filePath]);
 

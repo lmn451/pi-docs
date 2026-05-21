@@ -1,38 +1,31 @@
 /**
  * Document Registry — scans a docs folder, parses frontmatter, maintains index.
+ *
+ * Processing pipeline:
+ * 1. stat(filePath) → size check, mtime check, cache hit
+ * 2. readFile(filePath) → parse frontmatter or generate keywords
  */
-import { type Dirent, readdirSync, readFileSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
-import type { DocEntry } from "./types";
+import type { Dirent } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { basename, extname, join, relative, resolve } from "node:path";
+import type { CacheEntry, DocEntry, DocInjectorConfig, KeywordCache } from "./types";
+import { createGlobFilter } from "./globber";
+import { generateKeywords } from "./keyword-gen";
 
 /**
- * Parse YAML frontmatter from markdown content.
- * Returns { title, keywords, body } or null if no valid frontmatter found.
+ * Shared parser for frontmatter block content (title + keywords).
+ * Extracts title and keywords from YAML-like content between delimiters.
  */
-export function parseFrontmatter(
-  content: string,
-): { title: string; keywords: string[]; body: string } | null {
-  if (!content.startsWith("---")) {
-    return null;
-  }
-
-  const secondDash = content.indexOf("---", 3);
-  if (secondDash === -1) {
-    return null;
-  }
-
-  const frontmatterBlock = content.slice(3, secondDash).trim();
-  const body = content.slice(secondDash + 3).trim();
-
+function parseFrontmatterBlock(block: string): { title: string; keywords: string[] } | null {
   // Extract title
-  const titleMatch = frontmatterBlock.match(/^title:\s*["']?([^"'\n]+)["']?$/m);
+  const titleMatch = block.match(/^title:\s*["']?([^"'\n]+)["']?$/m);
   const title = titleMatch ? titleMatch[1].trim() : "";
 
   // Extract keywords — supports both flow array [a, b] and block array
   const keywords: string[] = [];
 
   // Try flow array: keywords: [a, b, c]
-  const flowMatch = frontmatterBlock.match(/keywords:\s*\[([^\]]*)\]/);
+  const flowMatch = block.match(/keywords:\s*\[([^\]]*)\]/);
   if (flowMatch) {
     keywords.push(
       ...flowMatch[1]
@@ -42,7 +35,7 @@ export function parseFrontmatter(
     );
   } else {
     // Try block array: keywords:\n  - a\n  - b
-    const blockMatches = frontmatterBlock.matchAll(/keywords:\s*\n((?:\s*-\s*.+\n?)+)/g);
+    const blockMatches = block.matchAll(/keywords:\s*\n((?:\s*-\s*.+\n?)+)/g);
     for (const bm of blockMatches) {
       const items = bm[1].matchAll(/^\s*-\s*["']?([^"'\n]+)["']?$/gm);
       for (const im of items) {
@@ -56,8 +49,177 @@ export function parseFrontmatter(
     return null;
   }
 
-  return { title: title || "Untitled", keywords, body };
+  return { title: title || "Untitled", keywords };
 }
+
+/**
+ * Parse YAML-style frontmatter: `--- ... ---`
+ */
+function parseYamlFrontmatter(
+  content: string,
+): { title: string; keywords: string[]; body: string } | null {
+  if (!content.startsWith("---")) return null;
+
+  const secondDash = content.indexOf("---", 3);
+  if (secondDash === -1) return null;
+
+  const block = content.slice(3, secondDash).trim();
+  const body = content.slice(secondDash + 3).trim();
+
+  const parsed = parseFrontmatterBlock(block);
+  if (!parsed) return null;
+
+  return { ...parsed, body };
+}
+
+/**
+ * Parse C-style block comment frontmatter: `/*--- ... ---*​/`
+ */
+function parseCStyleFrontmatter(
+  content: string,
+): { title: string; keywords: string[]; body: string } | null {
+  if (!content.startsWith("/*---")) return null;
+
+  const end = content.indexOf("---*/", 5);
+  if (end === -1) return null;
+
+  let block = content.slice(5, end).trim();
+  const body = content.slice(end + 5).trim();
+
+  // Strip optional "* " or " * " prefix from each line (common in block comments)
+  block = block
+    .split("\n")
+    .map((line) => line.replace(/^\s*\*\s?/, ""))
+    .join("\n");
+
+  const parsed = parseFrontmatterBlock(block);
+  if (!parsed) return null;
+
+  return { ...parsed, body };
+}
+
+/**
+ * Parse HTML comment frontmatter: `<!-- ... -->`
+ */
+function parseHTMLFrontmatter(
+  content: string,
+): { title: string; keywords: string[]; body: string } | null {
+  if (!content.startsWith("<!--")) return null;
+
+  const end = content.indexOf("-->", 4);
+  if (end === -1) return null;
+
+  const block = content.slice(4, end).trim();
+  const body = content.slice(end + 3).trim();
+
+  const parsed = parseFrontmatterBlock(block);
+  if (!parsed) return null;
+
+  return { ...parsed, body };
+}
+
+/**
+ * Parse slash-slash comment frontmatter: `//--- ...` (blank line terminates).
+ */
+function parseSlashSlashFrontmatter(
+  content: string,
+): { title: string; keywords: string[]; body: string } | null {
+  if (!content.startsWith("//---")) return null;
+
+  // Ensure //--- is followed by a newline (its own line)
+  const afterOpener = content.indexOf("\n", 5);
+  if (afterOpener === -1) return null;
+
+  const rest = content.slice(afterOpener + 1);
+
+  // Find blank line terminator
+  const blankLineIdx = rest.indexOf("\n\n");
+
+  let block: string;
+  let body: string;
+
+  if (blankLineIdx === -1) {
+    // No blank line — remaining content is frontmatter block, body is empty
+    block = rest;
+    body = "";
+  } else {
+    block = rest.slice(0, blankLineIdx);
+    body = rest.slice(blankLineIdx + 2).trim();
+  }
+
+  // Strip optional "//" prefix from each line
+  block = block
+    .split("\n")
+    .map((line) => line.replace(/^\/\/\s?/, ""))
+    .join("\n")
+    .trim();
+
+  const parsed = parseFrontmatterBlock(block);
+  if (!parsed) return null;
+
+  return { ...parsed, body };
+}
+
+/**
+ * Parse frontmatter from content, trying each supported style in order.
+ * Returns { title, keywords, body } or null if no valid frontmatter found.
+ *
+ * Styles tried: YAML (---), C-style block (/*---), HTML comment (<!--),
+ * slash-slash comment (//---, blank-line terminated).
+ */
+export function parseFrontmatter(
+  content: string,
+): { title: string; keywords: string[]; body: string } | null {
+  return (
+    parseYamlFrontmatter(content)
+    ?? parseCStyleFrontmatter(content)
+    ?? parseHTMLFrontmatter(content)
+    ?? parseSlashSlashFrontmatter(content)
+  );
+}
+
+interface ScanResult {
+  filePath: string;
+  relativePath: string;
+  fileName: string;
+}
+
+// ─── PromisePool ───────────────────────────────────────────────────────
+
+/**
+ * Simple promise pool that runs async tasks with a concurrency limit.
+ * Used for parallel file I/O during rebuild.
+ */
+class PromisePool {
+  private running = 0;
+  private waitResolve: (() => void) | null = null;
+
+  constructor(private concurrency: number) {}
+
+  /**
+   * Run all tasks with at most `concurrency` in flight at once.
+   * Returns results in the same order as the input tasks.
+   */
+  async all<T>(tasks: Array<() => Promise<T>>): Promise<T[]> {
+    const results: T[] = new Array(tasks.length);
+    let nextIndex = 0;
+
+    const worker = async (): Promise<void> => {
+      while (nextIndex < tasks.length) {
+        const idx = nextIndex++;
+        results[idx] = await tasks[idx]();
+      }
+    };
+
+    const workerCount = Math.min(this.concurrency, tasks.length);
+    const workers = Array.from({ length: workerCount }, () => worker());
+    await Promise.all(workers);
+
+    return results;
+  }
+}
+
+// ─── DocRegistry ───────────────────────────────────────────────────────
 
 /**
  * Document Registry class. Scans a docs folder and maintains an index of DocEntry.
@@ -65,16 +227,23 @@ export function parseFrontmatter(
 export class DocRegistry {
   private entries: DocEntry[] = [];
   private docsPath: string;
-  private recursive: boolean;
+  private config: DocInjectorConfig;
+  private cache: KeywordCache | null = null;
+  private dirtyCache: KeywordCache = { version: 1, files: {} };
 
-  private constructor(docsPath: string, recursive: boolean = true) {
+  private constructor(docsPath: string, config: DocInjectorConfig, cache?: KeywordCache) {
     this.docsPath = docsPath;
-    this.recursive = recursive;
+    this.config = config;
+    this.cache = cache ?? null;
   }
 
   /** Create a registry by scanning the docs folder. */
-  static async create(docsPath: string, recursive: boolean = true): Promise<DocRegistry> {
-    const registry = new DocRegistry(docsPath, recursive);
+  static async create(
+    docsPath: string,
+    config: DocInjectorConfig,
+    cache?: KeywordCache,
+  ): Promise<DocRegistry> {
+    const registry = new DocRegistry(docsPath, config, cache);
     await registry.rebuild();
     return registry;
   }
@@ -87,48 +256,135 @@ export class DocRegistry {
       preserved.set(e.filePath, e.injected);
     }
 
+    // Start with a fresh dirty cache — only files that changed get added
+    this.dirtyCache = { version: 1, files: {} };
+
     try {
-      const scanResults = this.recursive
-        ? this.scanRecursive(resolved)
-        : this.scanFlat(resolved);
+      const scanResults = this.config.recursive
+        ? await this.scanRecursive(resolved)
+        : await this.scanFlat(resolved);
 
-      const newEntries: DocEntry[] = [];
-      for (const { filePath, relativePath, fileName } of scanResults) {
-        try {
-          const raw = readFileSync(filePath, "utf-8");
-          const parsed = parseFrontmatter(raw);
-          if (!parsed) {
-            console.warn(`[doc-injector] Skipping ${relativePath}: no valid frontmatter with keywords`);
-            continue;
-          }
-          newEntries.push({
-            filePath,
-            fileName,
-            relativePath,
-            title: parsed.title,
-            keywords: parsed.keywords,
-            content: raw,
-            injected: preserved.get(filePath) ?? false,
-          });
-        } catch (err) {
-          // Only warn for unexpected errors, not ENOENT (file deleted/moved after scan)
-          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-            console.warn(`[doc-injector] Error reading ${relativePath}:`, err);
-          }
-        }
-      }
+      // Process files concurrently with PromisePool
+      const pool = new PromisePool(this.config.maxConcurrent);
 
-      this.entries = newEntries;
+      const tasks = scanResults.map((sr) => async (): Promise<DocEntry | null> => {
+        return this.processFile(sr, preserved);
+      });
+
+      const results = await pool.all(tasks);
+      this.entries = results.filter((e): e is DocEntry => e !== null);
     } catch {
       console.warn(`[doc-injector] Docs folder not found: ${resolved}`);
       this.entries = [];
     }
   }
 
-  /** Scan top-level .md files only (non-recursive). */
-  private scanFlat(dir: string): Array<{ filePath: string; relativePath: string; fileName: string }> {
-    return readdirSync(dir)
-      .filter((f) => f.endsWith(".md"))
+  /**
+   * Process a single file through the full pipeline.
+   * Returns a DocEntry or null if the file should be skipped.
+   */
+  private async processFile(
+    { filePath, relativePath, fileName }: ScanResult,
+    preserved: Map<string, boolean>,
+  ): Promise<DocEntry | null> {
+    try {
+      // ═══ METADATA + CACHE ═══
+
+      // Step 1: Stat the file for size and mtime
+      const fileStat = await stat(filePath);
+
+      // Step 2: Skip files exceeding maxFileSize
+      if (fileStat.size > this.config.maxFileSize) {
+        console.warn(
+          `[doc-injector] Skipping ${relativePath}: size ${fileStat.size} > max ${this.config.maxFileSize}`,
+        );
+        return null;
+      }
+
+      const cachedEntry = this.cache?.files[relativePath];
+
+      // Step 6: Cache hit — mtime matches, use cached keywords
+      if (cachedEntry && cachedEntry.mtimeMs === fileStat.mtimeMs) {
+        // Still read the file for content and title (needed for injection),
+        // but skip keyword generation entirely
+        const raw = await readFile(filePath, "utf-8");
+        const title = extractTitle(raw, fileName);
+
+        return {
+          filePath,
+          fileName,
+          relativePath,
+          title,
+          keywords: cachedEntry.keywords,
+          content: raw,
+          injected: preserved.get(filePath) ?? false,
+          keywordSource: "cache",
+        };
+      }
+
+      // ═══ FULL READ + PARSE (cache miss) ═══
+
+      // Step 7: Read file content
+      const raw = await readFile(filePath, "utf-8");
+
+      // Step 8: Try frontmatter parsing
+      const parsed = parseFrontmatter(raw);
+
+      let title: string;
+      let keywords: string[];
+      let keywordSource: DocEntry["keywordSource"];
+
+      if (parsed) {
+        // Step 9: Frontmatter found — use its title and keywords
+        title = parsed.title;
+        keywords = parsed.keywords;
+        keywordSource = "frontmatter";
+      } else if (this.config.autoKeywords) {
+        // Step 10: No frontmatter, generate keywords heuristically
+        title = extractTitle(raw, fileName);
+        keywords = generateKeywords(fileName, raw);
+        keywordSource = "heuristic";
+      } else {
+        // Step 11: No frontmatter and autoKeywords disabled — skip
+        console.warn(
+          `[doc-injector] Skipping ${relativePath}: no valid frontmatter with keywords`,
+        );
+        return null;
+      }
+
+      // ═══ CACHE UPDATE ═══
+
+      // Step 12: Mark as dirty (mtime changed or keywords generated)
+      this.dirtyCache.files[relativePath] = {
+        mtimeMs: fileStat.mtimeMs,
+        keywords,
+      };
+
+      return {
+        filePath,
+        fileName,
+        relativePath,
+        title,
+        keywords,
+        content: raw,
+        injected: preserved.get(filePath) ?? false,
+        keywordSource,
+      };
+    } catch (err) {
+      // Only warn for unexpected errors, not ENOENT (file deleted/moved after scan)
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.warn(`[doc-injector] Error reading ${relativePath}:`, err);
+      }
+      return null;
+    }
+  }
+
+  /** Scan files (non-recursive) filtered by glob. */
+  private async scanFlat(dir: string): Promise<ScanResult[]> {
+    const filter = createGlobFilter(this.config.include, this.config.exclude);
+    const entries = await readdir(dir);
+    return entries
+      .filter((f) => filter.match(f))
       .map((f) => ({
         filePath: join(dir, f),
         relativePath: f,
@@ -136,19 +392,18 @@ export class DocRegistry {
       }));
   }
 
-  /** Scan .md files recursively, including subdirectories. */
-  private scanRecursive(dir: string): Array<{ filePath: string; relativePath: string; fileName: string }> {
-    const results: Array<{ filePath: string; relativePath: string; fileName: string }> = [];
-    const dirents = readdirSync(dir, { recursive: true, withFileTypes: true }) as Dirent[];
+  /** Scan files recursively filtered by glob. */
+  private async scanRecursive(dir: string): Promise<ScanResult[]> {
+    const filter = createGlobFilter(this.config.include, this.config.exclude);
+    const results: ScanResult[] = [];
+    const dirents = await readdir(dir, { recursive: true, withFileTypes: true }) as Dirent[];
 
     for (const dirent of dirents) {
-      if (!dirent.isFile() || !dirent.name.endsWith(".md")) continue;
+      if (!dirent.isFile()) continue;
 
       const fileName = basename(dirent.name);
 
-      // Cross-runtime: when dirent.name is just the filename, resolve the
-      // relative path from the parent directory. Use parentPath (Node 18+)
-      // with fallback to .path (Bun) for older runtimes.
+      // Resolve relative path cross-runtime
       let relPath: string;
       if (dirent.name === fileName) {
         const parentPath = (dirent as Dirent & { parentPath?: string; path?: string }).parentPath
@@ -158,9 +413,11 @@ export class DocRegistry {
           ? relative(dir, join(parentPath, dirent.name))
           : dirent.name;
       } else {
-        // Node-style: dirent.name already contains the relative path from dir
         relPath = dirent.name;
       }
+
+      // Apply glob filter
+      if (!filter.match(relPath)) continue;
 
       results.push({
         filePath: join(dir, relPath),
@@ -171,6 +428,24 @@ export class DocRegistry {
 
     return results;
   }
+
+  /**
+   * Return cache entries that were dirtied (created or updated) during the
+   * most recent rebuild. These need to be persisted to disk.
+   */
+  getDirtyCache(): Record<string, CacheEntry> {
+    return { ...this.dirtyCache.files };
+  }
+
+  /**
+   * Update the cache reference without rebuilding.
+   * Used when reloading from disk (e.g. resources_discover) to pick up
+   * LLM-written entries before the next rebuild.
+   */
+  updateCache(cache: KeywordCache): void {
+    this.cache = cache;
+  }
+
 
   /**
    * Get all registered entries.
@@ -209,4 +484,18 @@ export class DocRegistry {
   reset(): void {
     this.markAllNotInjected();
   }
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Extract a title from file content.
+ * Uses the first markdown heading if present, otherwise falls back to filename.
+ */
+function extractTitle(content: string, fileName: string): string {
+  const match = content.match(/^#\s+(.+)$/m);
+  if (match) return match[1].trim();
+
+  // Fall back to filename without extension
+  return fileName.replace(/\.[^.]+$/, "");
 }

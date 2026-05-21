@@ -14,6 +14,21 @@ export interface NotifyCapability {
 }
 
 /**
+ * Sanitize keywords for safe injection into the system prompt.
+ *
+ * - Strips \n and \r (replaces with space) to prevent prompt injection
+ * - Caps each keyword at 100 characters
+ * - Enforces a hard limit of 20 keywords
+ */
+function sanitizeKeywords(keywords: string[]): string[] {
+  return keywords
+    .map((k) => k.replace(/[\n\r]/g, " ").trim())
+    .filter((k) => k.length > 0)
+    .map((k) => (k.length > 100 ? k.slice(0, 100) : k))
+    .slice(0, 20);
+}
+
+/**
  * Build a system prompt append string from matched documents.
  */
 export function buildSystemPromptAppend(
@@ -29,7 +44,9 @@ export function buildSystemPromptAppend(
   ];
 
   for (const entry of entries) {
-    const keywords = matchedKeywords.get(entry.filePath) ?? [];
+    // Sanitize keywords before display to prevent prompt injection
+    const rawKeywords = matchedKeywords.get(entry.filePath) ?? [];
+    const keywords = sanitizeKeywords(rawKeywords);
     sections.push(`### ${entry.title}`);
     sections.push(`Source: \`${entry.relativePath}\``);
     if (keywords.length > 0) {

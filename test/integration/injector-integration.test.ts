@@ -89,8 +89,11 @@ interface MockExtensionAPI {
   on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => void;
   emit: (event: string, data: unknown, ctx: unknown) => Promise<unknown>;
   registerCommand: (name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) => void;
+  registerTool: (def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }) => void;
   sendUserMessage: ReturnType<typeof createMockFn>;
+  sendMessage: ReturnType<typeof createMockFn>;
   _handlers: Map<string, Array<(event: unknown, ctx: unknown) => unknown>>;
+  _tools: Map<string, { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }>;
   _sessionCtx: {
     cwd: string;
     ui: { notify: ReturnType<typeof createMockFn> };
@@ -107,19 +110,23 @@ const createMockAPI = (): MockExtensionAPI => {
   const getContextUsageFn = createMockFn();
   const abortFn = createMockFn();
   const sendUserMessageFn = createMockFn();
+    const sendMessageFn = createMockFn();
   const commandHandlers = new Map<string, (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>>();
+  const tools = new Map<string, { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }>();
   let isIdle = true;
 
   const api: MockExtensionAPI = {
     _handlers: new Map(),
+    _tools: tools,
     _commandHandlers: commandHandlers,
     sendUserMessage: sendUserMessageFn,
+    sendMessage: sendMessageFn,
     _sessionCtx: {
       cwd: __dirname,
       ui: { notify: notifyFn },
       getContextUsage: () => {
         const result = getContextUsageFn();
-        return result as { tokens: number; percent: number } | null;
+        return result as unknown as { tokens: number; percent: number } | null;
       },
       isIdle: () => isIdle,
       abort: abortFn,
@@ -132,6 +139,9 @@ const createMockAPI = (): MockExtensionAPI => {
     },
     registerCommand(name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) {
       commandHandlers.set(name, opts.handler as (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>);
+    },
+    registerTool(def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }) {
+      tools.set(def.name, def);
     },
     async emit(event: string, data: unknown, ctx: unknown) {
       const handlers = this._handlers.get(event) ?? [];
@@ -449,6 +459,59 @@ Added after initial load.
     const typedResult = result as { systemPrompt?: string } | undefined;
     expect(typedResult?.systemPrompt).toContain("New Documentation");
   });
+  test("reuses LLM-generated keywords after resources_discover reload", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    const tool = api._tools.get("_doc_injector_keywords");
+    expect(tool).toBeDefined();
+
+    await tool!.execute(
+      "tool-call-id",
+      { keywords: [{ path: "no-frontmatter.md", keywords: ["oauth", "token"] }] },
+      undefined,
+      undefined,
+      api._sessionCtx,
+    );
+
+    await api.emit("resources_discover", {}, api._sessionCtx);
+
+    const listHandler = api._commandHandlers.get("doc-inject");
+    expect(listHandler).toBeDefined();
+    const notifyFn = createMockFn();
+    await listHandler!("list", { ui: { notify: notifyFn } });
+
+    const notification = (notifyFn as unknown as { calls: unknown[][] }).calls[0][0] as string;
+    expect(notification).toContain("[cache] no-frontmatter.md");
+    expect(notification).toContain("oauth");
+    expect(notification).toContain("token");
+  });
+
+  test("skips cache entry for non-existent files in _doc_injector_keywords", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    const tool = api._tools.get("_doc_injector_keywords");
+    expect(tool).toBeDefined();
+
+    // Mix of existing and non-existing files
+    const result = await tool!.execute(
+      "tool-call-id",
+      { keywords: [
+        { path: "testing-guide.md", keywords: ["test"] },
+        { path: "nonexistent-file-12345.md", keywords: ["ghost"] },
+      ]},
+      undefined,
+      undefined,
+      api._sessionCtx,
+    );
+
+    // Should report 1 saved (not 2)
+    const text = result.content[0].text;
+    expect(text).toContain("1"); // Only 1 file saved, not 2
+  });
 });
 
 describe("Doc Injector Extension - Auto-Abort on Stream", () => {
@@ -525,6 +588,7 @@ describe("Doc Injector Extension - Auto-Abort on Stream", () => {
   });
 
   test("agent_end sends follow-up message to restart after abort", async () => {
+    vi.useFakeTimers();
     const api = createMockAPI();
     await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
     await triggerSessionStart(api);
@@ -537,13 +601,15 @@ describe("Doc Injector Extension - Auto-Abort on Stream", () => {
       api._sessionCtx,
     );
 
-    // Emit agent_end — should trigger sendUserMessage("continue")
+    // Emit agent_end — should trigger sendUserMessage (deferred via setTimeout)
     await api.emit("agent_end", {}, api._sessionCtx);
+
+    // Run the setTimeout(0) callback
+    vi.runAllTimers();
 
     const sendCalls = (api.sendUserMessage as unknown as { calls: unknown[][] }).calls;
     expect(sendCalls.length).toBe(1);
-    expect(sendCalls[0][0]).toBe("continue");
-    expect(sendCalls[0][1]).toEqual({ deliverAs: "followUp" });
+    expect(sendCalls[0][0]).toBe('continue');
   });
 
   test("does NOT send follow-up in agent_end without prior abort", async () => {

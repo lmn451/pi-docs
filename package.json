@@ -9,6 +9,7 @@
   },
   "files": [
     "*.ts",
+    "*.d.ts",
     "docs/**/*.md",
     "README.md"
   ],
@@ -32,6 +33,9 @@
     "extensions": [
       "./index.ts"
     ]
+  },
+  "dependencies": {
+    "picomatch": "^4.0.2"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*"

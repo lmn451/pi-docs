@@ -10,6 +10,7 @@ const makeEntry = (name: string, keywords: string[], content: string): DocEntry 
   keywords,
   content,
   injected: false,
+  keywordSource: "frontmatter",
 });
 
 describe("buildSystemPromptAppend", () => {
@@ -50,6 +51,7 @@ describe("buildSystemPromptAppend", () => {
       keywords: ["setup"],
       content: "# Setup Guide",
       injected: false,
+      keywordSource: "frontmatter",
     };
     const map = new Map<string, string[]>();
     map.set(entry.filePath, ["setup"]);

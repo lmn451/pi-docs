@@ -3,14 +3,26 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { DocRegistry } from "./registry";
+import type { DocInjectorConfig } from "./types";
 
+/** Dependencies injected into the command registrar. */
 export interface CommandDeps {
   getRegistry: () => DocRegistry | null;
   getEnabled: () => boolean;
   setEnabled: (v: boolean) => void;
   reloadRegistry: () => Promise<number>;
+  getConfig: () => DocInjectorConfig;
+  generateKeywordsLLM: (files: Array<{ path: string; snippet: string; existingKeywords: string[] }>) => Promise<void>;
 }
 
+/**
+ * Register all doc-injector slash commands on the given ExtensionAPI.
+ *
+ * Commands:
+ * - `/doc-inject [on|off|toggle|list|reset|status]` — manage injection state
+ * - `/doc-reload` — re-scan docs folder
+ * - `/doc-keywords-gen [path]` — generate LLM keywords for keyword-less files
+ */
 export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
   const cmd = (name: string, desc: string, handler: (args: string, ctx: ExtensionContext) => Promise<void>) => {
     pi.registerCommand(name, { description: desc, handler });
@@ -49,7 +61,8 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
       }
       const lines = entries.map((e) => {
         const status = e.injected ? "✅" : "⬜";
-        return `${status} ${e.relativePath}: "${e.title}" — keywords: [${e.keywords.join(", ")}]`;
+        const sourceTag = `[${e.keywordSource}]`;
+        return `${status} ${sourceTag} ${e.relativePath}: "${e.title}" — keywords: [${e.keywords.join(", ")}]`;
       });
       ctx.ui.notify(`📄 Registered docs:\n${lines.join("\n")}`, "info");
     } else {
@@ -79,6 +92,60 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
       ctx.ui.notify(`📄 Reloaded: ${count} documents found`, "info");
     } catch (err) {
       ctx.ui.notify(`📄 Reload failed: ${err instanceof Error ? err.message : String(err)}`, "error");
+    }
+  });
+
+  cmd("doc-keywords-gen", "Generate LLM keywords: /doc-keywords-gen [path] — no arg = all keyword-less files", async (args, ctx) => {
+    const reg = deps.getRegistry();
+    if (!reg) {
+      ctx.ui.notify("📄 No registry loaded", "warning");
+      return;
+    }
+
+    const config = deps.getConfig();
+    if (!config.llmKeywords) {
+      ctx.ui.notify("📄 LLM keyword generation is disabled (llmKeywords: false in config)", "warning");
+      return;
+    }
+
+    const targetPath = args.trim();
+
+    // Filter to keyword-less entries (keywordSource !== "frontmatter", "cache", or "llm")
+    let candidates = reg.getEntries().filter((e) => {
+      if (e.keywordSource === "frontmatter") return false;
+      if (e.keywordSource === "cache") return false;
+      if (e.keywordSource === "llm") return false; // already LLM-generated
+      return true;
+    });
+
+    if (targetPath) {
+      candidates = candidates.filter((e) => e.relativePath.includes(targetPath));
+      if (candidates.length === 0) {
+        ctx.ui.notify(`📄 No keyword-less files matching "${targetPath}"`, "info");
+        return;
+      }
+    }
+
+    if (candidates.length === 0) {
+      ctx.ui.notify("📄 All files already have keywords", "info");
+      return;
+    }
+
+    const batchSize = config.llmBatchSize;
+    const batches: Array<Array<{ path: string; snippet: string; existingKeywords: string[] }>> = [];
+    for (let i = 0; i < candidates.length; i += batchSize) {
+      const batch = candidates.slice(i, i + batchSize).map((e) => ({
+        path: e.relativePath,
+        snippet: e.content.slice(0, 500),
+        existingKeywords: e.keywords,
+      }));
+      batches.push(batch);
+    }
+
+    ctx.ui.notify(`📄 Sending ${batches.length} keyword-generation batch(es) for ${candidates.length} file(s)...`, "info");
+
+    for (const batch of batches) {
+      await deps.generateKeywordsLLM(batch);
     }
   });
 }
