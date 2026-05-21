@@ -377,21 +377,15 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
 
     if (abortingForInjection) {
       abortingForInjection = false;
-      console.log('[doc-injector] agent_end: sending continue message with triggerTurn:true');
-      // Send a follow-up message to restart the turn.
-      // before_agent_start will inject the matched docs into context.
-      //
-      // Use sendMessage with triggerTurn:true — calls agent.prompt() directly
-      // when agent is idle, bypassing the isStreaming check.
-      try {
-        pi.sendMessage(
-          { customType: "doc-injector-continue", content: "continue" },
-          { triggerTurn: true, deliverAs: "followUp" },
-        );
-        console.log('[doc-injector] agent_end: sendMessage completed');
-      } catch (err) {
-        console.error('[doc-injector] agent_end: sendMessage failed:', err);
-      }
+      console.log('[doc-injector] agent_end: scheduling continue via sendUserMessage');
+      // Defer sendUserMessage to next tick to avoid re-entrancy issues.
+      // agent_end fires inside _processAgentEvent queue - calling prompt()
+      // synchronously from here can cause issues.
+      setTimeout(() => {
+        console.log('[doc-injector] setTimeout: calling sendUserMessage');
+        pi.sendUserMessage("continue");
+        console.log('[doc-injector] setTimeout: sendUserMessage completed');
+      }, 0);
     } else {
       console.log('[doc-injector] agent_end: abortingForInjection is false, skipping');
     }
