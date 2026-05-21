@@ -300,10 +300,8 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
 
     if (hasNew && !ctx.isIdle() && !abortingForInjection) {
-      console.log('[doc-injector] message_update: aborting for injection, matched keywords:', results.map(r => r.matchedKeywords).flat());
       abortingForInjection = true;
       ctx.abort();
-      console.log('[doc-injector] message_update: abort called');
     }
   });
 
@@ -377,14 +375,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
 
     if (abortingForInjection) {
       abortingForInjection = false;
-      console.log('[doc-injector] agent_end: scheduling continue via sendUserMessage');
       // Defer sendUserMessage to next tick to avoid re-entrancy issues.
-      // agent_end fires inside _processAgentEvent queue - calling prompt()
-      // synchronously from here can cause issues.
       setTimeout(() => {
-        console.log('[doc-injector] setTimeout: calling sendUserMessage');
         pi.sendUserMessage("continue");
-        console.log('[doc-injector] setTimeout: sendUserMessage completed');
       }, 0);
     } else {
       console.log('[doc-injector] agent_end: abortingForInjection is false, skipping');
