@@ -120,11 +120,6 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
 
     const count = registry.getEntries().length;
-    if (count > 0) {
-      console.log(`[doc-injector] Loaded ${count} documents from ${docsPath}`);
-    } else {
-      console.warn(`[doc-injector] No documents found at ${docsPath}`);
-    }
   };
 
   const buildMatcher = (): KeywordMatcher | null => {
@@ -170,7 +165,6 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
         const absPath = resolve(ctx.cwd, config.docsPath, item.path);
         const fileStat = await stat(absPath).catch(() => null);
         if (!fileStat) {
-          console.warn(`[doc-injector] Skipping keyword save for ${item.path}: file not found`);
           continue;
         }
         cache.files[item.path] = {
@@ -231,7 +225,6 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
 
     const count = registry.getEntries().length;
-    console.log(`[doc-injector] Reloaded: ${count} documents`);
     return count;
   };
 
@@ -338,7 +331,6 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     // past the model's limit.
     const usage = ctx.getContextUsage();
     if (usage && usage.tokens && usage.tokens > 0 && usage.percent && usage.percent > config.contextThreshold) {
-      console.warn(`[doc-injector] Skipping injection: context usage > ${config.contextThreshold}%`);
       pendingMatches.clear();
       return;
     }
@@ -379,8 +371,6 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       setTimeout(() => {
         pi.sendUserMessage("continue");
       }, 0);
-    } else {
-      console.log('[doc-injector] agent_end: abortingForInjection is false, skipping');
     }
   });
 
