@@ -27,7 +27,23 @@ git clone https://github.com/yourname/pi-doc-injector.git .pi/extensions/doc-inj
 ## Quick Start
 
 1. Create a `docs/` folder in your project root.
-2. Add markdown files with YAML frontmatter:
+2. Add markdown files with frontmatter (`title` + `keywords`). See [Document Format](#document-format) for supported formats.
+3. Start Pi. The extension scans `docs/` on session start.
+4. When the user mentions a keyword, the matching doc is injected into the
+   system prompt **before the assistant responds** — no one-turn delay.
+5. If the assistant mentions a NEW keyword mid-response, generation is
+   automatically aborted and restarted with the doc injected immediately.
+
+## Document Format
+
+Documents are markdown files (`.md` or `.txt`) that the extension scans for injection.
+Each file can declare `title` and `keywords` via **frontmatter** — a metadata block at the top of the file.
+
+### Supported Frontmatter Formats
+
+The extension tries formats in this order and uses the first match it finds:
+
+**1. YAML (recommended)**
 
 ```md
 ---
@@ -36,28 +52,57 @@ keywords: [test, testing, jest, vitest]
 ---
 
 # Testing Workflow
-
-Your documentation here...
 ```
 
-Keywords can also be specified in block format:
+**2. C-style block comment** — useful for `.ts`/`.js` doc files:
 
 ```md
----
+/*---
 title: "Testing Workflow"
-keywords:
+keywords: [test, testing, jest, vitest]
+---*/
+
+# Testing Workflow
+```
+
+**3. HTML comment** — useful for HTML-generated docs:
+
+```md
+<!--
+title: "Testing Workflow"
+keywords: [test, testing, jest, vitest]
+-->
+
+# Testing Workflow
+```
+
+**4. Slash-slash comment** — useful for `.js`/`.ts` sidecar docs:
+
+```md
+//---
+title: "Testing Workflow"
+keywords: [test, testing, jest, vitest]
+
+# Testing Workflow
+```
+
+### Keyword Array Syntax
+
+Both **flow** and **block** keyword array syntaxes are supported:
+
+```md
+keywords: [test, testing, jest]          # flow: comma-separated in brackets
+keywords:                              # block: one per line
   - test
   - testing
   - jest
-  - vitest
----
 ```
 
-3. Start Pi. The extension scans `docs/` on session start.
-4. When the user mentions a keyword, the matching doc is injected into the
-   system prompt **before the assistant responds** — no one-turn delay.
-5. If the assistant mentions a NEW keyword mid-response, generation is
-   automatically aborted and restarted with the doc injected immediately.
+### Auto-Keywords Fallback
+
+If a file has **no frontmatter** and `autoKeywords` is enabled (default: `true`), the extension generates keywords heuristically from the filename and content — no metadata needed.
+
+If `autoKeywords` is `false`, files without valid frontmatter are **skipped** with a warning.
 
 ## Configuration
 
@@ -68,7 +113,8 @@ Create `.pi/doc-injector.json` in your project root to customize behavior:
   "docsPath": "./docs",
   "matchThreshold": 1,
   "contextThreshold": 80,
-  "recursive": true
+  "recursive": true,
+  "autoKeywords": true
 }
 ```
 
@@ -78,6 +124,7 @@ Create `.pi/doc-injector.json` in your project root to customize behavior:
 | `matchThreshold`   | `1`        | Minimum keyword matches required to inject a doc         |
 | `contextThreshold` | `80`       | Skip injection when context usage exceeds this % (0–100) |
 | `recursive`        | `true`     | Scan docs subdirectories recursively                     |
+| `autoKeywords`     | `true`     | Generate keywords heuristically when frontmatter is missing |
 
 ### Keyword Matching
 
