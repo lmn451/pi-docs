@@ -114,7 +114,9 @@ Create `.pi/doc-injector.json` in your project root to customize behavior:
   "matchThreshold": 1,
   "contextThreshold": 80,
   "recursive": true,
-  "autoKeywords": true
+  "autoKeywords": true,
+  "llmKeywords": false,
+  "llmBatchSize": 20
 }
 ```
 
@@ -125,6 +127,8 @@ Create `.pi/doc-injector.json` in your project root to customize behavior:
 | `contextThreshold` | `80`       | Skip injection when context usage exceeds this % (0–100) |
 | `recursive`        | `true`     | Scan docs subdirectories recursively                     |
 | `autoKeywords`     | `true`     | Generate keywords heuristically when frontmatter is missing |
+| `llmKeywords`      | `false`    | Enable LLM-based keyword generation (see below)          |
+| `llmBatchSize`     | `20`       | Max files per LLM keyword batch                          |
 
 ### Keyword Matching
 
@@ -143,6 +147,50 @@ Injection is also skipped if the current context usage exceeds 80% of the token 
 | `/doc-inject reset`  | Reset all injected flags (docs become re-injectable) |
 | `/doc-inject status` | Show current injection status and config             |
 | `/doc-reload`        | Re-scan docs folder and rebuild registry             |
+| `/doc-keywords-gen`  | Generate LLM keywords for files without frontmatter (requires `llmKeywords: true` in config) |
+
+## Keyword Generation
+
+When a document has no frontmatter keywords, the extension handles it in two ways:
+
+### Heuristic (Automatic)
+
+If `autoKeywords` is `true` (default), keywords are generated automatically from:
+
+- **Filename parts**: `"api-authentication.md"` → `[api, authentication]`
+- **Markdown headings**: `"# Getting Started"` → `[getting, started]`
+- **Code symbols**: `"function foo()"` → `[foo]`
+
+All keywords are filtered through a stop-word list, lowercased, and capped at 20.
+
+### LLM Generation (Manual)
+
+For better keywords, enable LLM generation in config:
+
+```json
+{
+  "autoKeywords": true,
+  "llmKeywords": true,
+  "llmBatchSize": 20
+}
+```
+
+Then run `/doc-keywords-gen [path]` to generate keywords via LLM. Without a path argument, it processes all keyword-less files.
+
+The LLM reads each file's content and produces 3–10 relevant, searchable keywords per file. Results are saved to the cache and reused on subsequent scans.
+
+### Keyword Source Tracking
+
+The cache stores which method was used for each file's keywords:
+
+| Source       | How set                                          |
+| ------------ | ------------------------------------------------ |
+| `frontmatter` | Keywords declared in file frontmatter             |
+| `cache`      | Reused from previous scan (mtime match)          |
+| `heuristic`  | Auto-generated from filename/content             |
+| `llm`        | Generated via `/doc-keywords-gen`                |
+
+Use `/doc-inject list` to see each file's keyword source (shown as `[source]` tag).
 
 ## Injection Lifecycle
 
