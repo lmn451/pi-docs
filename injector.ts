@@ -1,8 +1,12 @@
 /**
- * Context Injector — formats matched docs into system prompt append
- * and sends TUI notifications.
+ * Context Injector — formats matched docs into a content string suitable for
+ * injection as a `CustomMessage` (returned from `before_agent_start`) and
+ * sends TUI notifications.
+ *
+ * The produced content is delivered to the LLM as a `CustomMessage` rather
+ * than appended to the system prompt. This keeps the system prompt
+ * byte-identical across turns so the provider's prompt cache stays warm.
  */
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { DocEntry } from "./types";
 
 /**
@@ -14,7 +18,7 @@ export interface NotifyCapability {
 }
 
 /**
- * Sanitize keywords for safe injection into the system prompt.
+ * Sanitize keywords for safe display in the injection content.
  *
  * - Strips \n and \r (replaces with space) to prevent prompt injection
  * - Caps each keyword at 100 characters
@@ -29,11 +33,13 @@ function sanitizeKeywords(keywords: string[]): string[] {
 }
 
 /**
- * Build a system prompt append string from matched documents.
+ * Build the content string for a `CustomMessage` injection from matched
+ * documents. This is the payload that gets returned in
+ * `before_agent_start`'s `message.content` and sent to the LLM.
  */
-export function buildSystemPromptAppend(
-  entries: DocEntry[],
-  matchedKeywords: Map<string, string[]>,
+export function buildInjectionContent(
+    entries: DocEntry[],
+    matchedKeywords: Map<string, string[]>,
 ): string {
   if (entries.length === 0) return "";
 

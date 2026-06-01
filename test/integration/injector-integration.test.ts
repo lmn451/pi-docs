@@ -188,10 +188,11 @@ describe("Doc Injector Extension - Integration", () => {
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
     expect(result).toBeDefined();
-    const typedResult = result as { systemPrompt?: string } | undefined;
-    expect(typedResult?.systemPrompt).toContain("## Relevant Context Documents");
-    expect(typedResult?.systemPrompt).toContain("Testing Guide");
-    expect(typedResult?.systemPrompt).toContain("Matched keywords:");
+    const typedResult = result as { message?: { customType: string; content: string } } | undefined;
+    expect(typedResult?.message?.customType).toBe("doc-injector");
+    expect(typedResult?.message?.content).toContain("## Relevant Context Documents");
+    expect(typedResult?.message?.content).toContain("Testing Guide");
+    expect(typedResult?.message?.content).toContain("Matched keywords:");
   });
 
   test("does not inject docs when keywords don't match", async () => {
@@ -213,9 +214,9 @@ describe("Doc Injector Extension - Integration", () => {
     await triggerInput(api, "About testing and workflow: let me explain the CI pipeline...");
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
-    const typedResult = result as { systemPrompt?: string } | undefined;
-    expect(typedResult?.systemPrompt).toContain("Testing Guide");
-    expect(typedResult?.systemPrompt).toContain("Workflow Guide");
+    const typedResult = result as { message?: { customType: string; content: string } } | undefined;
+    expect(typedResult?.message?.content).toContain("Testing Guide");
+    expect(typedResult?.message?.content).toContain("Workflow Guide");
   });
 
   test("marks injected docs so they aren't re-injected", async () => {
@@ -225,16 +226,14 @@ describe("Doc Injector Extension - Integration", () => {
 
     await triggerInput(api, "testing is important...");
     const result1 = await triggerAgentStart(api, "You are a helpful assistant.");
-    expect((result1 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
+    expect((result1 as { message?: { content: string } })?.message?.content).toContain("Testing Guide");
 
     await triggerInput(api, "More about testing...");
     const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
 
-    const typedResult2 = result2 as { systemPrompt?: string } | undefined;
-    if (typedResult2?.systemPrompt) {
-      const count = (typedResult2.systemPrompt.match(/Testing Guide/g) ?? []).length;
-      expect(count).toBeLessThanOrEqual(1);
-    }
+    // Second turn should NOT return a message at all — doc is already injected.
+    const typedResult2 = result2 as { message?: { content: string } } | undefined;
+    expect(typedResult2?.message).toBeUndefined();
   });
 
   test("sends notification when docs are injected", async () => {
@@ -275,16 +274,12 @@ describe("Doc Injector Extension - Commands", () => {
     // First injection
     await triggerInput(api, "testing is important...");
     const result1 = await triggerAgentStart(api, "You are a helpful assistant.");
-    expect((result1 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
+    expect((result1 as { message?: { content: string } })?.message?.content).toContain("Testing Guide");
 
-    // Second message - doc already marked as injected
+    // Second message - doc already marked as injected, should NOT return a message
     await triggerInput(api, "More about testing...");
     const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
-    const typedResult2 = result2 as { systemPrompt?: string } | undefined;
-    if (typedResult2?.systemPrompt) {
-      const count = (typedResult2.systemPrompt.match(/Testing Guide/g) ?? []).length;
-      expect(count).toBeLessThanOrEqual(1);
-    }
+    expect((result2 as { message?: { content: string } } | undefined)?.message).toBeUndefined();
 
     // Invoke /doc-inject reset command
     const resetHandler = api._commandHandlers.get("doc-inject");
@@ -295,7 +290,7 @@ describe("Doc Injector Extension - Commands", () => {
     // Now the same keyword should inject again
     await triggerInput(api, "testing after reset...");
     const result3 = await triggerAgentStart(api, "You are a helpful assistant.");
-    expect((result3 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
+    expect((result3 as { message?: { content: string } })?.message?.content).toContain("Testing Guide");
   });
 
   test("/doc-inject list shows status of all docs", async () => {
@@ -337,7 +332,7 @@ describe("Doc Injector Extension - Commands", () => {
     // Now injection should work
     await triggerInput(api, "testing...");
     const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
-    expect((result2 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
+    expect((result2 as { message?: { content: string } })?.message?.content).toContain("Testing Guide");
   });
 });
 
@@ -358,11 +353,8 @@ describe("Doc Injector Extension - Session Reset", () => {
     // Same keyword should NOT re-inject (doc already marked)
     await triggerInput(api, "testing again...");
     const result2 = await triggerAgentStart(api, "You are a helpful assistant.");
-    const typedResult2 = result2 as { systemPrompt?: string } | undefined;
-    if (typedResult2?.systemPrompt) {
-      const count = (typedResult2.systemPrompt.match(/Testing Guide/g) ?? []).length;
-      expect(count).toBeLessThanOrEqual(1);
-    }
+    const typedResult2 = result2 as { message?: { content: string } } | undefined;
+    expect(typedResult2?.message).toBeUndefined();
 
     // Reset via command — should allow re-injection
     const resetHandler = api._commandHandlers.get("doc-inject");
@@ -371,7 +363,7 @@ describe("Doc Injector Extension - Session Reset", () => {
 
     await triggerInput(api, "testing after reset...");
     const result3 = await triggerAgentStart(api, "You are a helpful assistant.");
-    expect((result3 as { systemPrompt?: string })?.systemPrompt).toContain("Testing Guide");
+    expect((result3 as { message?: { content: string } })?.message?.content).toContain("Testing Guide");
   });
 });
 
@@ -435,8 +427,8 @@ Added after initial load.
     await triggerInput(api, "new feature added...");
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
-    const typedResult = result as { systemPrompt?: string } | undefined;
-    expect(typedResult?.systemPrompt).toContain("New Documentation");
+    const typedResult = result as { message?: { content: string } } | undefined;
+    expect(typedResult?.message?.content).toContain("New Documentation");
   });
   test("reuses LLM-generated keywords after resources_discover reload", async () => {
     const api = createMockAPI();
@@ -603,3 +595,211 @@ describe("Doc Injector Extension - Auto-Abort on Stream", () => {
     expect(sendCalls.length).toBe(0);
   });
 });
+
+describe("Doc Injector Extension - No Double Injection Validation", () => {
+    // These tests rigorously verify that docs are injected at most once per
+    // session. The new CustomMessage injection model inherits two independent
+    // guards:
+    //   1. Matcher guard: `buildMatcher()` excludes already-injected docs
+    //      via `getNonInjectedEntries()`.
+    //   2. Mark guard: `markInjected()` runs inside `before_agent_start`
+    //      synchronously with the LLM call, so even if the matcher ever
+    //      produced a duplicate, the mark would still prevent a second send.
+
+    beforeEach(() => { setupDocs(); setupConfig(); });
+    afterEach(() => { cleanupDocs(); cleanupConfig(); });
+
+    test("same keyword across 10 turns produces exactly 1 injection", async () => {
+        const api = createMockAPI();
+        await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+        await triggerSessionStart(api);
+
+        const injectionCount: number[] = [];
+        for (let i = 0; i < 10; i++) {
+            await triggerInput(api, `testing is important (turn ${i})...`);
+            const result = await triggerAgentStart(api, "You are a helpful assistant.");
+            const r = result as { message?: { content: string } } | undefined;
+            injectionCount.push(r?.message ? 1 : 0);
+        }
+
+        // Exactly one of the ten turns should have produced a message
+        const total = injectionCount.reduce((a, b) => a + b, 0);
+        expect(total).toBe(1);
+    });
+
+    test("different keywords across turns each inject their doc exactly once", async () => {
+        const api = createMockAPI();
+        await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+        await triggerSessionStart(api);
+
+        // Turn 1: match "testing" -> Testing Guide
+        await triggerInput(api, "let's talk about testing");
+        const r1 = await triggerAgentStart(api, "x");
+        const c1 = (r1 as { message?: { content: string } } | undefined)?.message?.content ?? "";
+
+        // Turn 2: match "workflow" -> Workflow Guide (testing already injected)
+        await triggerInput(api, "now the workflow please");
+        const r2 = await triggerAgentStart(api, "x");
+        const c2 = (r2 as { message?: { content: string } } | undefined)?.message?.content ?? "";
+
+        // Turn 3: match "testing" again -> should NOT re-inject
+        await triggerInput(api, "back to testing again");
+        const r3 = await triggerAgentStart(api, "x");
+        const c3 = (r3 as { message?: { content: string } } | undefined)?.message?.content ?? "";
+
+        // Turn 4: match "workflow" again -> should NOT re-inject
+        await triggerInput(api, "and workflow once more");
+        const r4 = await triggerAgentStart(api, "x");
+        const c4 = (r4 as { message?: { content: string } } | undefined)?.message?.content ?? "";
+
+        expect(c1).toContain("Testing Guide");
+        expect(c1).not.toContain("Workflow Guide");
+        expect(c2).toContain("Workflow Guide");
+        expect(c2).not.toContain("Testing Guide");
+        expect(c3).toBe(""); // no injection
+        expect(c4).toBe(""); // no injection
+    });
+
+    test("system prompt is NEVER mutated by the injection handler", async () => {
+        const api = createMockAPI();
+        await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+        await triggerSessionStart(api);
+
+        const basePrompt = "You are a helpful assistant. Do not change this text.";
+
+        // Turn 1: match -> injection
+        await triggerInput(api, "testing is great");
+        const r1 = await triggerAgentStart(api, basePrompt);
+
+        // The returned `systemPrompt` field must be undefined (we don't
+        // override it) and the message field must contain the doc content.
+        const typed1 = r1 as { systemPrompt?: string; message?: { content: string } } | undefined;
+        expect(typed1?.systemPrompt).toBeUndefined();
+        expect(typed1?.message?.content).toContain("Testing Guide");
+
+        // Turn 2: same keyword, no injection, system prompt still untouched
+        await triggerInput(api, "more testing");
+        const r2 = await triggerAgentStart(api, basePrompt);
+        const typed2 = r2 as { systemPrompt?: string; message?: { content: string } } | undefined;
+        expect(typed2?.systemPrompt).toBeUndefined();
+        expect(typed2?.message).toBeUndefined();
+    });
+
+    test("injected message has customType=doc-injector and display=true", async () => {
+        const api = createMockAPI();
+        await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+        await triggerSessionStart(api);
+
+        await triggerInput(api, "testing is important");
+        const r = await triggerAgentStart(api, "x");
+
+        const msg = (r as { message?: { customType: string; content: string; display: boolean } } | undefined)?.message;
+        expect(msg).toBeDefined();
+        expect(msg?.customType).toBe("doc-injector");
+        expect(msg?.display).toBe(true);
+        expect(typeof msg?.content).toBe("string");
+        expect(msg?.content.length).toBeGreaterThan(0);
+    });
+
+    test("user message AND mid-stream assistant message both match an already-injected doc: no duplicate", async () => {
+        // After turn 1 injects Testing Guide, both the user's new message
+        // and the assistant's streamed response can mention the same keyword.
+        // The matcher (using getNonInjectedEntries) must filter both, so
+        // neither triggers a re-injection.
+        const api = createMockAPI();
+        await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+        await triggerSessionStart(api);
+
+        // Turn 1: user mentions "testing" -> inject
+        await triggerInput(api, "tell me about testing");
+        const r1 = await triggerAgentStart(api, "x");
+        const c1 = (r1 as { message?: { content: string } } | undefined)?.message?.content ?? "";
+        expect(c1).toContain("Testing Guide");
+
+        // Turn 2: user mentions same keyword, then assistant streams it again
+        // -> still no duplicate
+        await triggerInput(api, "more testing please");
+        await triggerAssistantStream(api, "Sure, let's keep testing");
+        const r2 = await triggerAgentStart(api, "x");
+        expect((r2 as { message?: { content: string } } | undefined)?.message).toBeUndefined();
+    });
+
+    test("auto-abort + restart: no duplicate injection across the restart", async () => {
+        // Simulate: assistant is mid-stream and mentions a NEW keyword, which
+        // triggers ctx.abort(). The extension then sends a "continue" message
+        // via setTimeout(0) in agent_end. The continue-turn should inject
+        // exactly once (not re-trigger the abort and not double-inject).
+        vi.useFakeTimers();
+        const api = createMockAPI();
+        await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+        await triggerSessionStart(api);
+
+        // Turn 1: user triggers initial injection
+        await triggerInput(api, "explain testing");
+        const r1 = await triggerAgentStart(api, "x");
+        expect((r1 as { message?: { content: string } } | undefined)?.message?.content).toContain("Testing Guide");
+
+        // Turn 2: assistant is mid-streaming, mentions a new keyword
+        // (workflow, which hasn't been injected yet)
+        api._setIdle(false);
+        await triggerInput(api, "more please");
+        await api.emit(
+            "message_update",
+            { message: { role: "assistant", content: "let's also cover the workflow" } },
+            api._sessionCtx,
+        );
+
+        // Abort should fire (because workflow is a new match while streaming)
+        const abortCalls = (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls;
+        expect(abortCalls.length).toBe(1);
+
+        // agent_end -> "continue" is queued via setTimeout
+        await api.emit("agent_end", {}, api._sessionCtx);
+        vi.runAllTimers();
+
+        const sendCalls = (api.sendUserMessage as unknown as { calls: unknown[][] }).calls;
+        expect(sendCalls.length).toBe(1);
+        expect(sendCalls[0][0]).toBe("continue");
+
+        // Drain the queued "continue" turn
+        await triggerInput(api, "continue");
+        const r2 = await triggerAgentStart(api, "x");
+        const c2 = (r2 as { message?: { content: string } } | undefined)?.message?.content ?? "";
+        expect(c2).toContain("Workflow Guide");
+        // The previously-injected doc should NOT appear again
+        expect(c2).not.toContain("Testing Guide");
+
+        vi.useRealTimers();
+    });
+
+    test("re-injection is possible ONLY after /doc-inject reset, not before", async () => {
+        const api = createMockAPI();
+        await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+        await triggerSessionStart(api);
+
+        // First injection
+        await triggerInput(api, "testing is important");
+        const r1 = await triggerAgentStart(api, "x");
+        expect((r1 as { message?: { content: string } } | undefined)?.message).toBeDefined();
+
+        // Same keyword 5 more times - all should be no-ops
+        for (let i = 0; i < 5; i++) {
+            await triggerInput(api, `testing turn ${i}`);
+            const r = await triggerAgentStart(api, "x");
+            expect((r as { message?: { content: string } } | undefined)?.message).toBeUndefined();
+        }
+
+        // Reset
+        const resetHandler = api._commandHandlers.get("doc-inject");
+        expect(resetHandler).toBeDefined();
+        const notifyFn = createMockFn();
+        await resetHandler!("reset", { ui: { notify: notifyFn } });
+
+        // Same keyword now re-injects
+        await triggerInput(api, "testing after reset");
+        const rAfter = await triggerAgentStart(api, "x");
+        const c = (rAfter as { message?: { content: string } } | undefined)?.message?.content ?? "";
+        expect(c).toContain("Testing Guide");
+    });
+});
+

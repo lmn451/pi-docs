@@ -1,4 +1,4 @@
-import { buildSystemPromptAppend, notifyInjection } from "../injector";
+import { buildInjectionContent, notifyInjection } from "../injector";
 import type { DocEntry } from "../types";
 import { describe, expect, test } from "vitest";
 
@@ -13,13 +13,13 @@ const makeEntry = (name: string, keywords: string[], content: string): DocEntry 
   keywordSource: "frontmatter",
 });
 
-describe("buildSystemPromptAppend", () => {
+describe("buildInjectionContent", () => {
   test("formats a single doc", () => {
     const entry = makeEntry("test.md", ["test", "testing"], "# Test Guide\nContent here.");
     const map = new Map<string, string[]>();
     map.set(entry.filePath, ["test", "testing"]);
 
-    const result = buildSystemPromptAppend([entry], map);
+    const result = buildInjectionContent([entry], map);
     expect(result).toContain("## Relevant Context Documents");
     expect(result).toContain("### test.md");
     expect(result).toContain("Matched keywords: test, testing");
@@ -33,13 +33,13 @@ describe("buildSystemPromptAppend", () => {
     map.set(e1.filePath, ["test"]);
     map.set(e2.filePath, ["workflow"]);
 
-    const result = buildSystemPromptAppend([e1, e2], map);
+    const result = buildInjectionContent([e1, e2], map);
     expect(result).toContain("### test.md");
     expect(result).toContain("### workflow.md");
   });
 
   test("returns empty string for no entries", () => {
-    expect(buildSystemPromptAppend([], new Map())).toBe("");
+    expect(buildInjectionContent([], new Map())).toBe("");
   });
 
   test("uses relativePath in Source line", () => {
@@ -56,7 +56,7 @@ describe("buildSystemPromptAppend", () => {
     const map = new Map<string, string[]>();
     map.set(entry.filePath, ["setup"]);
 
-    const result = buildSystemPromptAppend([entry], map);
+    const result = buildInjectionContent([entry], map);
     expect(result).toContain("Source: `guides/setup.md`");
     expect(result).not.toContain("Source: `setup.md`");
   });

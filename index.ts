@@ -4,6 +4,21 @@
  * Automatically injects relevant project documentation into the LLM context
  * by monitoring streaming output for keyword matches.
  *
+ * ## Injection Model: CustomMessage (NOT system prompt)
+ *
+ * On match, the extension returns a `message` field from `before_agent_start`
+ * (a `CustomMessage` with `customType: "doc-injector"`). Pi appends this to the
+ * session and sends it to the LLM as part of the conversation — the system
+ * prompt is NEVER mutated.
+ *
+ * Why a message and not the system prompt:
+ * - The system prompt is the highest-value Anthropic prompt-cache slot. Each
+ *   unique system prompt text breaks the cache (5-min TTL by default).
+ *   Appending per-turn doc content there would invalidate the cache on every
+ *   first injection.
+ * - A `message` only adds to the conversation prefix, leaving the system
+ *   prompt cache warm across turns.
+ *
  * ## Streaming Model
  *
  * This extension relies on Pi's streaming event contract:
@@ -13,7 +28,7 @@
  * - `message_end`: Fires once when the assistant's response is complete.
  *   The extension finalizes matches and notifies the user.
  * - `before_agent_start`: Fires before the next agent turn. The extension
- *   injects matched docs into the system prompt, then marks them as injected.
+ *   returns a `message` carrying the matched docs and marks them as injected.
  *
  * ## Injection Lifecycle
  *
@@ -22,28 +37,23 @@
  * session, once a doc is injected, it won't be re-injected unless the user
  * manually runs `/doc-inject reset`.
  *
- * ## System Prompt Lifecycle (verified against pi v0.70.6)
+ * ## Double-Injection Prevention
  *
- * Pi **reconstructs the system prompt from source files each turn**. Here is
- * the exact flow, verified via source-code review of dist/core/agent-session.js
- * and dist/core/extensions/runner.js (v0.70.6):
+ * Two independent guards make duplicate injection impossible in a session:
  *
- * 1. Before each agent turn, pi calls `this._rebuildSystemPrompt(toolNames)`.
- *    This builds the prompt from `AGENTS.md`, `SYSTEM.md`, skills, enabled
- *    tool snippets — never from a previously modified (injected) prompt.
- * 2. The rebuilt prompt is stored in `this._baseSystemPrompt`.
- * 3. `emitBeforeAgentStart(..., this._baseSystemPrompt, ...)` passes this
- *    *fresh* base prompt to every extension handler.
- * 4. Extension handlers can return a modified `systemPrompt` for the current
- *    turn. Pi uses the modified prompt **only for this turn**.
- * 5. When no extension modifies the prompt, pi explicitly resets to
- *    `this._baseSystemPrompt` (comment in source: "Ensure we're using the
- *    base prompt (in case previous turn had modifications)").
+ * 1. **Matcher-level guard**: `buildMatcher()` calls `getNonInjectedEntries()`,
+ *    so already-injected docs are excluded from the candidate set. The
+ *    `pendingMatches` map is only populated from the matcher's output, so
+ *    once a doc is injected, the next `input` event cannot re-match it.
  *
- * **Therefore**: Previous injections from `before_agent_start` do NOT persist
- * across turns. Duplicate sections cannot accumulate in the system prompt.
- * The `injected` flag alone is sufficient to prevent re-injection — no
- * marker-based stripping or deduplication is needed.
+ * 2. **Mark guard**: `markInjected()` is called inside `before_agent_start`
+ *    AFTER the build step but BEFORE the return value is processed. This
+ *    means the flag flips synchronously with the LLM call — even if the
+ *    session is reloaded mid-turn, the next `buildMatcher()` won't see the
+ *    doc as a candidate.
+ *
+ * The two guards are redundant by design: if matcher exclusion ever fails
+ * (e.g. a race), the mark step still prevents the doc from being sent twice.
  *
  * ## Race Condition Note
  *
@@ -58,7 +68,7 @@ import { Type } from "@sinclair/typebox";
 import { resolve } from "node:path";
 import { loadCache, saveCache } from "./cache";
 import { loadConfig } from "./config";
-import { buildSystemPromptAppend, notifyInjection } from "./injector";
+import { buildInjectionContent, notifyInjection } from "./injector";
 import { buildKeywordGenPrompt } from "./keyword-llm";
 import { extractText, KeywordMatcher } from "./matcher";
 import { DocRegistry } from "./registry";
@@ -308,7 +318,11 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     textBuffer = "";
   });
 
-  // ---- Event: before_agent_start (inject into system prompt) ----
+  // ---- Event: before_agent_start (inject as CustomMessage) ----
+  // Returns a `message` (CustomMessage with customType: "doc-injector") rather
+  // than mutating `systemPrompt`. The system prompt stays byte-identical across
+  // turns, preserving the prompt cache. The CustomMessage is appended to the
+  // session and sent to the LLM as part of the conversation.
   pi.on("before_agent_start", async (event, ctx) => {
     // P5.4b — Guard: skip injection during LLM keyword generation
     if (keywordGenInFlight) return;
@@ -335,9 +349,12 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       return;
     }
 
-    const append = buildSystemPromptAppend(matchedEntries, pendingMatches);
+    const content = buildInjectionContent(matchedEntries, pendingMatches);
 
-    // Mark as injected only after confirming injection will happen
+    // Mark as injected only after confirming injection will happen.
+    // This is the second half of the double-injection guard: even if the
+    // matcher ever produced a duplicate match, markInjected prevents a
+    // second send.
     registry.markInjected(matchedEntries.map((e) => e.filePath));
 
     // Notify user about injection (moved here from message_end so it fires
@@ -348,7 +365,11 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     pendingMatches.clear();
 
     return {
-      systemPrompt: (event.systemPrompt || "") + "\n\n" + append,
+      message: {
+        customType: "doc-injector",
+        content,
+        display: true,
+      },
     };
   });
 
