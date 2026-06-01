@@ -9,6 +9,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { KeywordCache } from "./types";
+import type { Notifier } from "./notifier";
 
 const CACHE_FILENAME = ".pi/doc-injector-cache.json";
 const CACHE_VERSION = 1;
@@ -17,8 +18,11 @@ const CACHE_VERSION = 1;
  * Load the keyword cache from disk.
  * Returns an empty cache (version 1, no files) if the file doesn't exist,
  * has wrong version, or is corrupted.
+ *
+ * Recoverable issues (corrupt JSON, wrong version) emit a warning via the
+ * `notifier`. ENOENT (no cache file yet) is silent.
  */
-export async function loadCache(cwd: string): Promise<KeywordCache> {
+export async function loadCache(cwd: string, notifier: Notifier): Promise<KeywordCache> {
   const cachePath = join(cwd, CACHE_FILENAME);
 
   try {
@@ -26,7 +30,7 @@ export async function loadCache(cwd: string): Promise<KeywordCache> {
     const parsed: unknown = JSON.parse(raw);
 
     if (!isValidCache(parsed)) {
-      console.warn(
+      notifier.warn(
         `[doc-injector] Invalid cache format or version at ${cachePath}, resetting.`,
       );
       return emptyCache();
@@ -36,10 +40,8 @@ export async function loadCache(cwd: string): Promise<KeywordCache> {
   } catch (err) {
     // ENOENT = no cache file yet, that's fine
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.warn(
-        `[doc-injector] Failed to read cache at ${cachePath}:`,
-        err instanceof Error ? err.message : String(err),
-      );
+      const detail = err instanceof Error ? err.message : String(err);
+      notifier.warn(`[doc-injector] Failed to read cache at ${cachePath}: ${detail}`);
     }
     return emptyCache();
   }

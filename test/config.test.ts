@@ -1,12 +1,13 @@
 import { describe, test, expect } from "vitest";
 import { loadConfig } from "../config";
+import { silentNotifier } from "./_helpers/silentNotifier";
 import { DEFAULT_CONFIG } from "../types";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 describe("loadConfig", () => {
   test("returns defaults when no config file exists", async () => {
-    const config = await loadConfig("/nonexistent/path");
+    const config = await loadConfig("/nonexistent/path", silentNotifier);
     expect(config.docsPath).toBe(DEFAULT_CONFIG.docsPath);
     expect(config.matchThreshold).toBe(DEFAULT_CONFIG.matchThreshold);
     expect(config.contextThreshold).toBe(DEFAULT_CONFIG.contextThreshold);
@@ -26,7 +27,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ contextThreshold: 150 }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.contextThreshold).toBe(100);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -36,7 +37,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ contextThreshold: -10 }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.contextThreshold).toBe(0);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -46,7 +47,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ contextThreshold: 70 }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.contextThreshold).toBe(70);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -56,7 +57,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ recursive: false }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.recursive).toBe(false);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -66,7 +67,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ matchThreshold: 0 }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.matchThreshold).toBe(1);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -76,7 +77,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ matchThreshold: 5 }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.matchThreshold).toBe(5);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -91,7 +92,7 @@ describe("loadConfig", () => {
       contextThreshold: 50,
       recursive: false,
     }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.docsPath).toBe("./my-docs");
     expect(config.matchThreshold).toBe(2);
     expect(config.contextThreshold).toBe(50);
@@ -108,7 +109,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ maxFileSize: 500 }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.maxFileSize).toBe(1024);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -118,7 +119,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ maxConcurrent: 200 }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.maxConcurrent).toBe(100);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -128,7 +129,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ llmBatchSize: 0 }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.llmBatchSize).toBe(1);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -138,7 +139,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ include: "not-an-array" }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.include).toEqual(DEFAULT_CONFIG.include);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -148,7 +149,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ include: ["**/*.ts", "**/*.md"] }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.include).toEqual(["**/*.ts", "**/*.md"]);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -158,7 +159,7 @@ describe("loadConfig", () => {
     const configDir = join(tmpDir, ".pi");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "doc-injector.json"), JSON.stringify({ exclude: ["node_modules/**", 123, null, "dist/**"] }));
-    const config = await loadConfig(tmpDir);
+    const config = await loadConfig(tmpDir, silentNotifier);
     expect(config.exclude).toEqual(["node_modules/**", "dist/**"]);
     rmSync(tmpDir, { recursive: true, force: true });
   });

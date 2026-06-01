@@ -7,6 +7,7 @@ import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { loadCache, saveCache } from "../cache";
+import { silentNotifier } from "./_helpers/silentNotifier";
 import type { KeywordCache } from "../types";
 
 const TEST_DIR = join(process.cwd(), ".test-cache");
@@ -22,14 +23,14 @@ afterEach(() => {
 
 describe("loadCache", () => {
   test("returns empty cache when no file exists", async () => {
-    const cache = await loadCache(TEST_DIR);
+    const cache = await loadCache(TEST_DIR, silentNotifier);
     expect(cache.version).toBe(1);
     expect(cache.files).toEqual({});
   });
 
   test("returns empty cache for corrupted JSON", async () => {
     writeFileSync(join(TEST_DIR, ".pi", "doc-injector-cache.json"), "not json {{{");
-    const cache = await loadCache(TEST_DIR);
+    const cache = await loadCache(TEST_DIR, silentNotifier);
     expect(cache.version).toBe(1);
     expect(cache.files).toEqual({});
   });
@@ -39,7 +40,7 @@ describe("loadCache", () => {
       join(TEST_DIR, ".pi", "doc-injector-cache.json"),
       JSON.stringify({ version: 2, files: {} }),
     );
-    const cache = await loadCache(TEST_DIR);
+    const cache = await loadCache(TEST_DIR, silentNotifier);
     expect(cache.version).toBe(1);
     expect(cache.files).toEqual({});
   });
@@ -49,7 +50,7 @@ describe("loadCache", () => {
       join(TEST_DIR, ".pi", "doc-injector-cache.json"),
       JSON.stringify({ files: { "test.md": { mtimeMs: 123, keywords: ["a"] } } }),
     );
-    const cache = await loadCache(TEST_DIR);
+    const cache = await loadCache(TEST_DIR, silentNotifier);
     expect(cache.version).toBe(1);
     expect(cache.files).toEqual({});
   });
@@ -59,7 +60,7 @@ describe("loadCache", () => {
       join(TEST_DIR, ".pi", "doc-injector-cache.json"),
       JSON.stringify({ version: 1 }),
     );
-    const cache = await loadCache(TEST_DIR);
+    const cache = await loadCache(TEST_DIR, silentNotifier);
     expect(cache.version).toBe(1);
     expect(cache.files).toEqual({});
   });
@@ -77,7 +78,7 @@ describe("saveCache + loadCache roundtrip", () => {
 
     await saveCache(TEST_DIR, cache);
 
-    const loaded = await loadCache(TEST_DIR);
+    const loaded = await loadCache(TEST_DIR, silentNotifier);
     expect(loaded.version).toBe(1);
     expect(loaded.files).toEqual(cache.files);
   });
@@ -86,7 +87,7 @@ describe("saveCache + loadCache roundtrip", () => {
     const cache: KeywordCache = { version: 1, files: {} };
     await saveCache(TEST_DIR, cache);
 
-    const loaded = await loadCache(TEST_DIR);
+    const loaded = await loadCache(TEST_DIR, silentNotifier);
     expect(loaded.version).toBe(1);
     expect(loaded.files).toEqual({});
   });
@@ -100,7 +101,7 @@ describe("saveCache + loadCache roundtrip", () => {
     };
 
     await saveCache(TEST_DIR, cache);
-    const loaded = await loadCache(TEST_DIR);
+    const loaded = await loadCache(TEST_DIR, silentNotifier);
     expect(loaded.files).toEqual(cache.files);
   });
 
@@ -117,7 +118,7 @@ describe("saveCache + loadCache roundtrip", () => {
     };
     await saveCache(TEST_DIR, second);
 
-    const loaded = await loadCache(TEST_DIR);
+    const loaded = await loadCache(TEST_DIR, silentNotifier);
     expect(loaded.files).toEqual(second.files);
   });
 });

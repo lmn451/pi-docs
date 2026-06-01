@@ -71,13 +71,19 @@ import { loadConfig } from "./config";
 import { buildInjectionContent, notifyInjection } from "./injector";
 import { buildKeywordGenPrompt } from "./keyword-llm";
 import { extractText, KeywordMatcher } from "./matcher";
+import { ExtensionNotifier, type Notifier } from "./notifier";
 import { DocRegistry } from "./registry";
 import { DEFAULT_MATCHER_OPTIONS, type DocEntry, type MatchResult, type KeywordCache, type CacheEntry } from "./types";
 import { registerCommands } from "./commands";
 
 export default async function docInjectorExtension(pi: ExtensionAPI) {
   // ---- State ----
-  let config = await loadConfig(process.cwd());
+  // The notifier buffers warnings emitted during startup (loadConfig,
+  // loadCache, initRegistry) and flushes them via ctx.ui.notify() in
+  // session_start. The notifier is bound to the extension lifecycle so
+  // startup messages aren't lost.
+  const notifier: Notifier = new ExtensionNotifier();
+  let config = await loadConfig(process.cwd(), notifier);
   let registry: DocRegistry | null = null;
   let initRegistryPromise: Promise<void> | null = null;
   let enabled = true;
@@ -102,7 +108,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   const safeSaveCache = async (cwd: string, dirtyEntries: Record<string, CacheEntry>) => {
     // MAJOR-2 fix: before saveCache, re-read cache from disk to merge
     // LLM-written entries that may have landed during the scan.
-    const freshCache = await loadCache(cwd);
+    const freshCache = await loadCache(cwd, notifier);
     const mergedCache: KeywordCache = { version: 1, files: {} };
 
     // Start with fresh (disk) entries — includes any LLM writes during scan
@@ -119,10 +125,10 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   };
 
   const initRegistry = async (cwd: string) => {
-    config = await loadConfig(cwd);
+    config = await loadConfig(cwd, notifier);
     const docsPath = resolve(cwd, config.docsPath);
-    cache = await loadCache(cwd);
-    registry = await DocRegistry.create(docsPath, config, cache);
+    cache = await loadCache(cwd, notifier);
+    registry = await DocRegistry.create(docsPath, config, cache, notifier);
 
     const dirty = registry.getDirtyCache();
     if (Object.keys(dirty).length > 0) {
@@ -203,6 +209,12 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     llmBatchesCompleted = 0;
     llmTotalFiles = 0;
 
+    // Bind the notifier to the live context FIRST so any warnings emitted
+    // during initRegistry below go directly to the TUI instead of being
+    // buffered. Messages buffered from earlier (e.g. the factory-body
+    // loadConfig call) are flushed here in arrival order.
+    notifier.setContext(ctx);
+
     if (event.reason === "reload") return;
 
     if (initRegistryPromise) {
@@ -223,7 +235,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     const effectiveCwd = cwd ?? process.cwd();
 
     // Reload cache from disk to pick up LLM-generated entries
-    const freshCache = await loadCache(effectiveCwd);
+    const freshCache = await loadCache(effectiveCwd, notifier);
     cache = freshCache;
     registry.updateCache(cache);
 

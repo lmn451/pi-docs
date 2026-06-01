@@ -9,6 +9,7 @@ import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 import type { CacheEntry, DocEntry, DocInjectorConfig, KeywordCache } from "./types";
+import type { Notifier } from "./notifier";
 import { createGlobFilter } from "./globber";
 import { generateKeywords } from "./keyword-gen";
 
@@ -225,28 +226,36 @@ class PromisePool {
  * Document Registry class. Scans a docs folder and maintains an index of DocEntry.
  */
 export class DocRegistry {
-  private entries: DocEntry[] = [];
-  private docsPath: string;
-  private config: DocInjectorConfig;
-  private cache: KeywordCache | null = null;
-  private dirtyCache: KeywordCache = { version: 1, files: {} };
+    private entries: DocEntry[] = [];
+    private docsPath: string;
+    private config: DocInjectorConfig;
+    private cache: KeywordCache | null = null;
+    private dirtyCache: KeywordCache = { version: 1, files: {} };
+    private notifier: Notifier;
 
-  private constructor(docsPath: string, config: DocInjectorConfig, cache?: KeywordCache) {
-    this.docsPath = docsPath;
-    this.config = config;
-    this.cache = cache ?? null;
-  }
+    private constructor(
+        docsPath: string,
+        config: DocInjectorConfig,
+        cache: KeywordCache | undefined,
+        notifier: Notifier,
+    ) {
+        this.docsPath = docsPath;
+        this.config = config;
+        this.cache = cache ?? null;
+        this.notifier = notifier;
+    }
 
-  /** Create a registry by scanning the docs folder. */
-  static async create(
-    docsPath: string,
-    config: DocInjectorConfig,
-    cache?: KeywordCache,
-  ): Promise<DocRegistry> {
-    const registry = new DocRegistry(docsPath, config, cache);
-    await registry.rebuild();
-    return registry;
-  }
+    /** Create a registry by scanning the docs folder. */
+    static async create(
+        docsPath: string,
+        config: DocInjectorConfig,
+        cache: KeywordCache | undefined,
+        notifier: Notifier,
+    ): Promise<DocRegistry> {
+        const registry = new DocRegistry(docsPath, config, cache, notifier);
+        await registry.rebuild();
+        return registry;
+    }
 
   /** Re-scan the docs folder and rebuild the index. */
   async rebuild(): Promise<void> {
@@ -274,7 +283,7 @@ export class DocRegistry {
       const results = await pool.all(tasks);
       this.entries = results.filter((e): e is DocEntry => e !== null);
     } catch {
-      console.warn(`[doc-injector] Docs folder not found: ${resolved}`);
+      this.notifier.warn(`[doc-injector] Docs folder not found: ${resolved}`);
       this.entries = [];
     }
   }
@@ -295,7 +304,7 @@ export class DocRegistry {
 
       // Step 2: Skip files exceeding maxFileSize
       if (fileStat.size > this.config.maxFileSize) {
-        console.warn(
+        this.notifier.warn(
           `[doc-injector] Skipping ${relativePath}: size ${fileStat.size} > max ${this.config.maxFileSize}`,
         );
         return null;
@@ -346,7 +355,7 @@ export class DocRegistry {
         keywordSource = "heuristic";
       } else {
         // Step 11: No frontmatter and autoKeywords disabled — skip
-        console.warn(
+        this.notifier.warn(
           `[doc-injector] Skipping ${relativePath}: no valid frontmatter with keywords`,
         );
         return null;
@@ -373,7 +382,7 @@ export class DocRegistry {
     } catch (err) {
       // Only warn for unexpected errors, not ENOENT (file deleted/moved after scan)
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        console.warn(`[doc-injector] Error reading ${relativePath}:`, err);
+        this.notifier.warn(`[doc-injector] Error reading ${relativePath}: ${err instanceof Error ? err.message : String(err)}`);
       }
       return null;
     }

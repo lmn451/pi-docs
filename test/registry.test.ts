@@ -1,4 +1,5 @@
 import { parseFrontmatter, DocRegistry } from "../registry";
+import { silentNotifier } from "./_helpers/silentNotifier";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
@@ -208,7 +209,7 @@ describe("DocRegistry recursive scanning", () => {
   });
 
   test("recursive=true finds nested .md files", async () => {
-    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: true });
+    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: true }, undefined, silentNotifier);
     const entries = reg.getEntries();
     expect(entries.length).toBe(2);
     const relPaths = entries.map((e) => e.relativePath);
@@ -217,7 +218,7 @@ describe("DocRegistry recursive scanning", () => {
   });
 
   test("recursive=false only finds top-level .md files", async () => {
-    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: false });
+    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: false }, undefined, silentNotifier);
     const entries = reg.getEntries();
     expect(entries.length).toBe(1);
     expect(entries[0].fileName).toBe("root.md");
@@ -225,7 +226,7 @@ describe("DocRegistry recursive scanning", () => {
   });
 
   test("entries have correct relativePath", async () => {
-    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: true });
+    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: true }, undefined, silentNotifier);
     const nested = reg.getEntries().find((e) => e.title === "Nested");
     expect(nested).toBeDefined();
     expect(nested!.relativePath).toContain("nested.md");
@@ -255,7 +256,7 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("markInjected marks only specified entries", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig);
+    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
     const entries = reg.getEntries();
     expect(entries.length).toBe(2);
 
@@ -268,7 +269,7 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("markAllNotInjected resets all entries", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig);
+    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
     const entries = reg.getEntries();
     reg.markInjected(entries.map((e) => e.filePath));
     expect(reg.getEntries().every((e) => e.injected)).toBe(true);
@@ -279,7 +280,7 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("reset is alias for markAllNotInjected", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig);
+    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
     reg.markInjected(reg.getEntries().map((e) => e.filePath));
     expect(reg.getEntries().every((e) => e.injected)).toBe(true);
 
@@ -288,19 +289,19 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("markInjected with empty array does nothing", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig);
+    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
     reg.markInjected([]);
     expect(reg.getEntries().every((e) => !e.injected)).toBe(true);
   });
 
   test("markInjected with nonexistent path does nothing", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig);
+    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
     reg.markInjected(["/nonexistent/path.md"]);
     expect(reg.getEntries().every((e) => !e.injected)).toBe(true);
   });
 
   test("getNonInjectedEntries respects markInjected", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig);
+    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
     const entries = reg.getEntries();
     reg.markInjected([entries[0].filePath]);
 
