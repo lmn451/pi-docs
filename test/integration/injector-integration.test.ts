@@ -85,15 +85,28 @@ const cleanupConfig = () => {
 
 // ---- Mock ExtensionAPI ----
 
+/**
+ * Return shape for a mock tool's `execute`. Mirrors the real Pi tool result
+ * contract: an array of content blocks plus optional details. Strictly typed
+ * so call sites (e.g. `_doc_injector_keywords`) get proper types instead of
+ * `unknown`.
+ */
+interface MockToolResult {
+    content: Array<{ type: "text"; text: string }>;
+    details?: unknown;
+}
+
+
+
 interface MockExtensionAPI {
   on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => void;
   emit: (event: string, data: unknown, ctx: unknown) => Promise<unknown>;
   registerCommand: (name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) => void;
-  registerTool: (def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }) => void;
+  registerTool: (def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => Promise<MockToolResult> }) => void;
   sendUserMessage: ReturnType<typeof createMockFn>;
   sendMessage: ReturnType<typeof createMockFn>;
   _handlers: Map<string, Array<(event: unknown, ctx: unknown) => unknown>>;
-  _tools: Map<string, { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }>;
+  _tools: Map<string, { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => Promise<MockToolResult> }>;
   _sessionCtx: {
     cwd: string;
     ui: { notify: ReturnType<typeof createMockFn> };
@@ -112,7 +125,7 @@ const createMockAPI = (): MockExtensionAPI => {
   const sendUserMessageFn = createMockFn();
     const sendMessageFn = createMockFn();
   const commandHandlers = new Map<string, (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>>();
-  const tools = new Map<string, { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }>();
+  const tools = new Map<string, { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => Promise<MockToolResult> }>();
   let isIdle = true;
 
   const api: MockExtensionAPI = {
@@ -140,7 +153,7 @@ const createMockAPI = (): MockExtensionAPI => {
     registerCommand(name: string, opts: { description: string; handler: (...args: unknown[]) => unknown }) {
       commandHandlers.set(name, opts.handler as (args: string, ctx: { ui: { notify: ReturnType<typeof createMockFn> } }) => Promise<void>);
     },
-    registerTool(def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => unknown }) {
+    registerTool(def: { name: string; label: string; description: string; parameters: unknown; execute: (...args: unknown[]) => Promise<MockToolResult> }) {
       tools.set(def.name, def);
     },
     async emit(event: string, data: unknown, ctx: unknown) {
