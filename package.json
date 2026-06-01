@@ -1,6 +1,6 @@
 {
   "name": "pi-doc-injector",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Auto-inject relevant project documentation into Pi's LLM context based on keyword matching",
   "type": "module",
   "main": "./index.ts",
