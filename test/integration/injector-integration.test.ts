@@ -181,6 +181,14 @@ const triggerAssistantStream = async (api: MockExtensionAPI, content: string) =>
   await api.emit("message_end", { message: { role: "assistant", content } }, api._sessionCtx);
 };
 
+const triggerAssistantStreamBlocks = async (
+  api: MockExtensionAPI,
+  blocks: Array<{ type: string; text: string }>,
+) => {
+  await api.emit("message_update", { message: { role: "assistant", content: blocks } }, api._sessionCtx);
+  await api.emit("message_end", { message: { role: "assistant", content: blocks } }, api._sessionCtx);
+};
+
 const triggerAgentStart = async (api: MockExtensionAPI, systemPrompt = "") => {
   const result = await api.emit("before_agent_start", { systemPrompt }, api._sessionCtx);
   return result;
@@ -207,6 +215,40 @@ describe("Doc Injector Extension - Integration", () => {
     expect(typedResult?.message?.content).toContain("Testing Guide");
     expect(typedResult?.message?.content).toContain("Matched keywords:");
   });
+
+  test("matches keywords found in assistant thinking blocks", async () => {
+    // The text block is generic and contains NO keywords from any doc. The
+    // thinking block contains "testing" — a keyword of testing-guide.md.
+    // If extractText dropped thinking blocks, this test would fail with
+    // "no injection".
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    await triggerAssistantStreamBlocks(api, [
+      { type: "thinking", text: "The user is asking about testing their code." },
+      { type: "text", text: "Sure, let me help you with that." },
+    ]);
+
+    const result = await triggerAgentStart(api, "You are a helpful assistant.");
+    const typedResult = result as { message?: { customType: string; content: string } } | undefined;
+    expect(typedResult?.message?.customType).toBe("doc-injector");
+    expect(typedResult?.message?.content).toContain("Testing Guide");
+  });
+
+  test("does not inject when keywords appear only in non-thought text", async () => {
+    // Negative control: same text payload as a string (no thinking block)
+    // contains no keywords and must NOT trigger injection.
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    await triggerAssistantStream(api, "Sure, let me help you with that.");
+
+    const result = await triggerAgentStart(api, "You are a helpful assistant.");
+    expect((result as { message?: { content: string } } | undefined)?.message).toBeUndefined();
+  });
+
 
   test("does not inject docs when keywords don't match", async () => {
     const api = createMockAPI();
