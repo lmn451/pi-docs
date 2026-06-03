@@ -289,20 +289,27 @@ export class DocRegistry {
   }
 
   /**
-   * Process a single file through the full pipeline.
+   * Process a single file through the priority chain.
    * Returns a DocEntry or null if the file should be skipped.
+   *
+   * Priority (highest to lowest):
+   *   1. Frontmatter (authoritative — explicitly written by the doc author)
+   *   2. Cache (perf layer — mtime match means content hasn't changed)
+   *   3. Heuristic (free, automatic, local — filename + headings + code symbols)
+   *   4. Skip (no frontmatter, no cache, autoKeywords disabled)
+   *
+   * LLM-generated keywords populate the cache via the `_doc_injector_keywords`
+   * tool, so they surface as `keywordSource: "cache"` on the next rebuild
+   * (their `mtimeMs` is set to the file's current mtime when written).
    */
   private async processFile(
     { filePath, relativePath, fileName }: ScanResult,
     preserved: Map<string, boolean>,
   ): Promise<DocEntry | null> {
     try {
-      // ═══ METADATA + CACHE ═══
-
-      // Step 1: Stat the file for size and mtime
+      // ─── METADATA ─────────────────────────────────────────────
       const fileStat = await stat(filePath);
 
-      // Step 2: Skip files exceeding maxFileSize
       if (fileStat.size > this.config.maxFileSize) {
         this.notifier.warn(
           `[doc-injector] Skipping ${relativePath}: size ${fileStat.size} > max ${this.config.maxFileSize}`,
@@ -310,15 +317,29 @@ export class DocRegistry {
         return null;
       }
 
+      // Read once — needed for frontmatter parse, content, and title.
+      const raw = await readFile(filePath, "utf-8");
+
+      // ─── PRIORITY 1: Frontmatter (authoritative) ─────────────
+      const parsed = parseFrontmatter(raw);
+      if (parsed) {
+        // Frontmatter is self-caching (lives in the file), no dirty mark needed.
+        return {
+          filePath,
+          fileName,
+          relativePath,
+          title: parsed.title,
+          keywords: parsed.keywords,
+          content: raw,
+          injected: preserved.get(filePath) ?? false,
+          keywordSource: "frontmatter",
+        };
+      }
+
+      // ─── PRIORITY 2: Cache (mtime match means content unchanged) ──
       const cachedEntry = this.cache?.files[relativePath];
-
-      // Step 6: Cache hit — mtime matches, use cached keywords
       if (cachedEntry && cachedEntry.mtimeMs === fileStat.mtimeMs) {
-        // Still read the file for content and title (needed for injection),
-        // but skip keyword generation entirely
-        const raw = await readFile(filePath, "utf-8");
         const title = extractTitle(raw, fileName);
-
         return {
           filePath,
           fileName,
@@ -331,54 +352,34 @@ export class DocRegistry {
         };
       }
 
-      // ═══ FULL READ + PARSE (cache miss) ═══
+      // ─── PRIORITY 3: Heuristic (free, automatic fallback) ─────────
+      if (this.config.autoKeywords) {
+        const title = extractTitle(raw, fileName);
+        const keywords = generateKeywords(fileName, raw);
 
-      // Step 7: Read file content
-      const raw = await readFile(filePath, "utf-8");
+        // Mark cache dirty (newly generated keywords must be persisted).
+        this.dirtyCache.files[relativePath] = {
+          mtimeMs: fileStat.mtimeMs,
+          keywords,
+        };
 
-      // Step 8: Try frontmatter parsing
-      const parsed = parseFrontmatter(raw);
-
-      let title: string;
-      let keywords: string[];
-      let keywordSource: DocEntry["keywordSource"];
-
-      if (parsed) {
-        // Step 9: Frontmatter found — use its title and keywords
-        title = parsed.title;
-        keywords = parsed.keywords;
-        keywordSource = "frontmatter";
-      } else if (this.config.autoKeywords) {
-        // Step 10: No frontmatter, generate keywords heuristically
-        title = extractTitle(raw, fileName);
-        keywords = generateKeywords(fileName, raw);
-        keywordSource = "heuristic";
-      } else {
-        // Step 11: No frontmatter and autoKeywords disabled — skip
-        this.notifier.warn(
-          `[doc-injector] Skipping ${relativePath}: no valid frontmatter with keywords`,
-        );
-        return null;
+        return {
+          filePath,
+          fileName,
+          relativePath,
+          title,
+          keywords,
+          content: raw,
+          injected: preserved.get(filePath) ?? false,
+          keywordSource: "heuristic",
+        };
       }
 
-      // ═══ CACHE UPDATE ═══
-
-      // Step 12: Mark as dirty (mtime changed or keywords generated)
-      this.dirtyCache.files[relativePath] = {
-        mtimeMs: fileStat.mtimeMs,
-        keywords,
-      };
-
-      return {
-        filePath,
-        fileName,
-        relativePath,
-        title,
-        keywords,
-        content: raw,
-        injected: preserved.get(filePath) ?? false,
-        keywordSource,
-      };
+      // ─── PRIORITY 4: Skip ───────────────────────────────────────────
+      this.notifier.warn(
+        `[doc-injector] Skipping ${relativePath}: no valid frontmatter with keywords`,
+      );
+      return null;
     } catch (err) {
       // Only warn for unexpected errors, not ENOENT (file deleted/moved after scan)
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
