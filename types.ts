@@ -108,3 +108,15 @@ export const DEFAULT_MATCHER_OPTIONS: MatcherOptions = {
   matchThreshold: DEFAULT_CONFIG.matchThreshold,
   caseSensitive: false,
 };
+
+/**
+ * Sentinel value used in CacheEntry.mtimeMs to mark entries written by the
+ * LLM keyword generator. -1 is chosen because Node.Stats.mtimeMs is documented
+ * as a non-negative integer (milliseconds since the Unix Epoch), so a real
+ * file can never have mtimeMs === -1. Heuristic-written entries use the real
+ * file mtime, which is always >= 0.
+ *
+ * If you find yourself writing LLM_CACHE_SENTINEL into a real cache entry
+ * from a non-LLM code path, that's a bug.
+ */
+export const LLM_CACHE_SENTINEL = -1;

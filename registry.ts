@@ -8,7 +8,7 @@
 import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
-import type { CacheEntry, DocEntry, DocInjectorConfig, KeywordCache } from "./types";
+import { LLM_CACHE_SENTINEL, type CacheEntry, type DocEntry, type DocInjectorConfig, type KeywordCache } from "./types";
 import type { Notifier } from "./notifier";
 import { createGlobFilter } from "./globber";
 import { generateKeywords } from "./keyword-gen";
@@ -338,18 +338,35 @@ export class DocRegistry {
 
       // ─── PRIORITY 2: Cache (mtime match means content unchanged) ──
       const cachedEntry = this.cache?.files[relativePath];
-      if (cachedEntry && cachedEntry.mtimeMs === fileStat.mtimeMs) {
-        const title = extractTitle(raw, fileName);
-        return {
-          filePath,
-          fileName,
-          relativePath,
-          title,
-          keywords: cachedEntry.keywords,
-          content: raw,
-          injected: preserved.get(filePath) ?? false,
-          keywordSource: "cache",
-        };
+      if (cachedEntry) {
+        // LLM-generated: sentinel mtime never matches a real file
+        if (cachedEntry.mtimeMs === LLM_CACHE_SENTINEL) {
+          const title = extractTitle(raw, fileName);
+          return {
+            filePath,
+            fileName,
+            relativePath,
+            title,
+            keywords: cachedEntry.keywords,
+            content: raw,
+            injected: preserved.get(filePath) ?? false,
+            keywordSource: "llm",
+          };
+        }
+        // Real mtime match: heuristic or prior LLM-upgrade cache hit
+        if (cachedEntry.mtimeMs === fileStat.mtimeMs) {
+          const title = extractTitle(raw, fileName);
+          return {
+            filePath,
+            fileName,
+            relativePath,
+            title,
+            keywords: cachedEntry.keywords,
+            content: raw,
+            injected: preserved.get(filePath) ?? false,
+            keywordSource: "cache",
+          };
+        }
       }
 
       // ─── PRIORITY 3: Heuristic (free, automatic fallback) ─────────

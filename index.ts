@@ -73,7 +73,7 @@ import { buildKeywordGenPrompt } from "./keyword-llm";
 import { extractText, KeywordMatcher } from "./matcher";
 import { ExtensionNotifier, type Notifier } from "./notifier";
 import { DocRegistry } from "./registry";
-import { DEFAULT_MATCHER_OPTIONS, type DocEntry, type MatchResult, type KeywordCache, type CacheEntry } from "./types";
+import { DEFAULT_MATCHER_OPTIONS, LLM_CACHE_SENTINEL, type DocEntry, type MatchResult, type KeywordCache, type CacheEntry } from "./types";
 import { registerCommands } from "./commands";
 
 export default async function docInjectorExtension(pi: ExtensionAPI) {
@@ -184,7 +184,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
           continue;
         }
         cache.files[item.path] = {
-          mtimeMs: fileStat.mtimeMs,
+          // Use the sentinel — never the real mtime — so the next rebuild
+          // surfaces this entry as keywordSource: "llm" instead of "cache".
+          mtimeMs: LLM_CACHE_SENTINEL,
           keywords: item.keywords.map((k) => k.toLowerCase()).slice(0, 20),
         };
         saved++;
