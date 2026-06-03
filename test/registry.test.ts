@@ -3,7 +3,7 @@ import { silentNotifier } from "./_helpers/silentNotifier";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
-import { DEFAULT_CONFIG, type DocInjectorConfig } from "../types";
+import { DEFAULT_CONFIG, LLM_CACHE_SENTINEL, type DocInjectorConfig } from "../types";
 
 /** Minimal config for registry tests — scans .md files only. */
 const TEST_CONFIG: DocInjectorConfig = {
@@ -442,4 +442,53 @@ describe("DocRegistry keyword-source priority", () => {
     const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
     expect(reg.getDirtyCache()).toEqual({});
   });
+
+  test("priority 2 (LLM): sentinel mtime in cache surfaces keywordSource: \"llm\"", async () => {
+    // File without frontmatter, but cache has a sentinel mtime (LLM-written).
+    writeFileSync(
+      join(tmpDir, "llm-cache.md"),
+      "# No Frontmatter\n\nBody text.\n",
+    );
+    const cache = {
+      version: 1 as const,
+      files: {
+        "llm-cache.md": {
+          mtimeMs: LLM_CACHE_SENTINEL,
+          keywords: ["llm-generated", "keyword"],
+        },
+      },
+    };
+
+    const reg = await DocRegistry.create(tmpDir, testConfig, cache, silentNotifier);
+    const entry = reg.getEntries().find((e) => e.relativePath === "llm-cache.md")!;
+    expect(entry).toBeDefined();
+    expect(entry.keywordSource).toBe("llm");
+    expect(entry.keywords).toEqual(["llm-generated", "keyword"]);
+  });
+
+  test("priority 1: frontmatter beats an LLM-sentinel cache entry", async () => {
+    // File has frontmatter keywords; cache has DIFFERENT keywords with
+    // sentinel mtime (as if the LLM previously generated them).
+    // Frontmatter must still win.
+    writeFileSync(
+      join(tmpDir, "fm-beats-llm.md"),
+      "---\ntitle: Fm\nkeywords: [from-frontmatter]\n---\nbody.\n",
+    );
+    const cache = {
+      version: 1 as const,
+      files: {
+        "fm-beats-llm.md": {
+          mtimeMs: LLM_CACHE_SENTINEL,
+          keywords: ["from-llm-cache"],
+        },
+      },
+    };
+
+    const reg = await DocRegistry.create(tmpDir, testConfig, cache, silentNotifier);
+    const entry = reg.getEntries().find((e) => e.relativePath === "fm-beats-llm.md")!;
+    expect(entry).toBeDefined();
+    expect(entry.keywordSource).toBe("frontmatter");
+    expect(entry.keywords).toEqual(["from-frontmatter"]);
+  });
 });
+

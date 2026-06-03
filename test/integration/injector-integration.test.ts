@@ -544,7 +544,10 @@ Added after initial load.
     await listHandler!("list", { ui: { notify: notifyFn } });
 
     const notification = (notifyFn as unknown as { calls: unknown[][] }).calls[0][0] as string;
-    expect(notification).toContain("[cache] no-frontmatter.md");
+    // After the LLM tool writes its sentinel mtime, the next rebuild must
+    // surface the entry as [llm] (not [cache]) so /doc-keywords-gen
+    // correctly excludes it from re-processing.
+    expect(notification).toContain("[llm] no-frontmatter.md");
     expect(notification).toContain("oauth");
     expect(notification).toContain("token");
   });
