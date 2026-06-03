@@ -310,3 +310,136 @@ describe("DocRegistry mutation methods", () => {
     expect(nonInjected[0].filePath).toBe(entries[1].filePath);
   });
 });
+
+describe("DocRegistry keyword-source priority", () => {
+  const tmpDir = join(process.cwd(), ".test-docs-priority");
+  const testConfig: DocInjectorConfig = {
+    ...DEFAULT_CONFIG,
+    docsPath: tmpDir,
+    include: ["**/*.md"],
+    exclude: [],
+    recursive: false,
+  };
+
+  beforeEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    mkdirSync(tmpDir, { recursive: true });
+  });
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // Helper: read mtime of a file so the test cache entry matches it exactly.
+  const mtimeOf = (relPath: string): number => {
+    const { statSync } = require("node:fs");
+    return statSync(join(tmpDir, relPath)).mtimeMs;
+  };
+
+  test("priority 1: frontmatter wins over a valid cache entry (mtime match)", async () => {
+    // File has frontmatter keywords.
+    writeFileSync(
+      join(tmpDir, "with-fm.md"),
+      "---\ntitle: FM Doc\nkeywords: [from-frontmatter]\n---\nBody.\n",
+    );
+    // Cache has the same mtime but DIFFERENT keywords (simulating stale cache).
+    const cache = {
+      version: 1 as const,
+      files: {
+        "with-fm.md": { mtimeMs: mtimeOf("with-fm.md"), keywords: ["from-cache"] },
+      },
+    };
+
+    const reg = await DocRegistry.create(tmpDir, testConfig, cache, silentNotifier);
+    const entry = reg.getEntries().find((e) => e.relativePath === "with-fm.md")!;
+    expect(entry).toBeDefined();
+    expect(entry.keywords).toEqual(["from-frontmatter"]);
+    expect(entry.keywordSource).toBe("frontmatter");
+  });
+
+  test("priority 1: frontmatter wins on cache miss (no cache entry at all)", async () => {
+    writeFileSync(
+      join(tmpDir, "no-cache.md"),
+      "---\ntitle: NoCache\nkeywords: [explicit]\n---\nBody.\n",
+    );
+
+    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    const entry = reg.getEntries().find((e) => e.relativePath === "no-cache.md")!;
+    expect(entry.keywords).toEqual(["explicit"]);
+    expect(entry.keywordSource).toBe("frontmatter");
+  });
+
+  test("priority 2: cache used when no frontmatter and mtime matches", async () => {
+    // No frontmatter — just a body.
+    writeFileSync(
+      join(tmpDir, "no-fm.md"),
+      "# No Frontmatter\n\nBody text with the word testing appearing twice testing.\n",
+    );
+    const cache = {
+      version: 1 as const,
+      files: {
+        "no-fm.md": { mtimeMs: mtimeOf("no-fm.md"), keywords: ["cached", "keywords"] },
+      },
+    };
+
+    const reg = await DocRegistry.create(tmpDir, testConfig, cache, silentNotifier);
+    const entry = reg.getEntries().find((e) => e.relativePath === "no-fm.md")!;
+    expect(entry.keywords).toEqual(["cached", "keywords"]);
+    expect(entry.keywordSource).toBe("cache");
+  });
+
+  test("priority 3: heuristic runs when no frontmatter and no cache", async () => {
+    writeFileSync(
+      join(tmpDir, "fresh.md"),
+      "# Test Heading\n\nbody testing content.\n",
+    );
+
+    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    const entry = reg.getEntries().find((e) => e.relativePath === "fresh.md")!;
+    expect(entry.keywordSource).toBe("heuristic");
+    // Heuristic should pick up the heading word "Test" and the body word "testing".
+    expect(entry.keywords.length).toBeGreaterThan(0);
+    // The dirty cache should now hold this entry for persistence.
+    const dirty = reg.getDirtyCache();
+    expect(dirty["fresh.md"]).toBeDefined();
+    expect(dirty["fresh.md"].keywords).toEqual(entry.keywords);
+  });
+
+  test("priority 3: cache mtime mismatch falls through to heuristic (cache is stale)", async () => {
+    writeFileSync(
+      join(tmpDir, "stale.md"),
+      "# Heading\n\nbody.\n",
+    );
+    // Cache has an OLD mtime — must not match.
+    const cache = {
+      version: 1 as const,
+      files: {
+        "stale.md": { mtimeMs: mtimeOf("stale.md") - 10_000, keywords: ["old-cached"] },
+      },
+    };
+
+    const reg = await DocRegistry.create(tmpDir, testConfig, cache, silentNotifier);
+    const entry = reg.getEntries().find((e) => e.relativePath === "stale.md")!;
+    expect(entry.keywordSource).toBe("heuristic");
+    // Stale cache keywords must NOT leak through.
+    expect(entry.keywords).not.toContain("old-cached");
+  });
+
+  test("priority 4: skip when no frontmatter, no cache, autoKeywords=false", async () => {
+    const noAutoConfig: DocInjectorConfig = { ...testConfig, autoKeywords: false };
+    writeFileSync(join(tmpDir, "skip-me.md"), "# No FM\n\nbody.\n");
+
+    const reg = await DocRegistry.create(tmpDir, noAutoConfig, undefined, silentNotifier);
+    const entry = reg.getEntries().find((e) => e.relativePath === "skip-me.md");
+    expect(entry).toBeUndefined();
+  });
+
+  test("priority order: frontmatter file never marks the cache dirty", async () => {
+    writeFileSync(
+      join(tmpDir, "fm.md"),
+      "---\ntitle: FM\nkeywords: [k1, k2]\n---\nbody.\n",
+    );
+
+    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    expect(reg.getDirtyCache()).toEqual({});
+  });
+});
