@@ -219,6 +219,41 @@ describe("Doc Injector Extension - Integration", () => {
     expect(result).toBeUndefined();
   });
 
+  test("injection is gated by matchThreshold in the full flow", async () => {
+    // Override default config (matchThreshold: 1) to require 2 keyword hits.
+    // Must be written AFTER beforeEach's setupConfig() runs and BEFORE the
+    // extension reads the config via loadConfig().
+    writeFileSync(
+      resolve(__dirname, ".pi", "doc-injector.json"),
+      JSON.stringify({
+        docsPath: "./fixtures/docs",
+        matchThreshold: 2,
+        contextThreshold: 90,
+        recursive: true,
+      }),
+    );
+
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    // 1 keyword hit ("testing") on testing-guide.md — below threshold (2).
+    // The matcher returns no results, so pendingMatches stays empty and
+    // before_agent_start must NOT produce a message.
+    await triggerInput(api, "let's talk about testing");
+    const r1 = await triggerAgentStart(api, "You are a helpful assistant.");
+    expect((r1 as { message?: { content: string } } | undefined)?.message).toBeUndefined();
+
+    // 2 keyword hits ("testing" + "unit test") on the same doc — at threshold.
+    // The matcher now returns a result, pendingMatches is populated, and
+    // before_agent_start must return the doc-injector CustomMessage.
+    await triggerInput(api, "unit test for the testing module");
+    const r2 = await triggerAgentStart(api, "You are a helpful assistant.");
+    const typedResult2 = r2 as { message?: { customType: string; content: string } } | undefined;
+    expect(typedResult2?.message?.customType).toBe("doc-injector");
+    expect(typedResult2?.message?.content).toContain("Testing Guide");
+  });
+
   test("injects multiple matching docs", async () => {
     const api = createMockAPI();
     await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
