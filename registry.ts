@@ -232,6 +232,12 @@ export class DocRegistry {
     private cache: KeywordCache | null = null;
     private dirtyCache: KeywordCache = { version: 1, files: {} };
     private notifier: Notifier;
+    // Per-registry flag: warn about a missing docs folder at most once.
+    // rebuild() is called twice at startup (once from session_start, once
+    // from resources_discover); without this flag the user sees the
+    // same warning twice. Not reset across rebuilds — a missing folder
+    // is a persistent condition, not a transient one.
+    private warnedMissingDocs = false;
 
     private constructor(
         docsPath: string,
@@ -268,6 +274,21 @@ export class DocRegistry {
     // Start with a fresh dirty cache — only files that changed get added
     this.dirtyCache = { version: 1, files: {} };
 
+    // Pre-check folder existence. The previous catch-all "Docs folder not
+    // found" warning was misleading (it also fired for scan errors) and was
+    // emitted twice at startup (once from session_start, once from
+    // resources_discover). The warnedMissingDocs flag deduplicates across
+    // rebuilds for the lifetime of this registry.
+    const folderStat = await stat(resolved).catch(() => null);
+    if (!folderStat || !folderStat.isDirectory()) {
+      if (!this.warnedMissingDocs) {
+        this.notifier.warn(`[doc-injector] Docs folder not found: ${resolved}`);
+        this.warnedMissingDocs = true;
+      }
+      this.entries = [];
+      return;
+    }
+
     try {
       const scanResults = this.config.recursive
         ? await this.scanRecursive(resolved)
@@ -282,8 +303,13 @@ export class DocRegistry {
 
       const results = await pool.all(tasks);
       this.entries = results.filter((e): e is DocEntry => e !== null);
-    } catch {
-      this.notifier.warn(`[doc-injector] Docs folder not found: ${resolved}`);
+    } catch (err) {
+      // This catch now only fires for actual scan errors (not folder-missing).
+      this.notifier.warn(
+        `[doc-injector] Error scanning docs folder ${resolved}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
       this.entries = [];
     }
   }

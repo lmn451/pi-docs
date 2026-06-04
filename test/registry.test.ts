@@ -2,7 +2,7 @@ import { parseFrontmatter, DocRegistry } from "../registry";
 import { silentNotifier } from "./_helpers/silentNotifier";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
-import { describe, expect, test, beforeEach, afterEach } from "vitest";
+import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import { DEFAULT_CONFIG, LLM_CACHE_SENTINEL, type DocInjectorConfig } from "../types";
 
 /** Minimal config for registry tests — scans .md files only. */
@@ -491,4 +491,75 @@ describe("DocRegistry keyword-source priority", () => {
     expect(entry.keywords).toEqual(["from-frontmatter"]);
   });
 });
+
+describe("DocRegistry missing-folder behavior", () => {
+  const missingDir = join(process.cwd(), ".test-docs-missing");
+  const testConfig: DocInjectorConfig = {
+    ...DEFAULT_CONFIG,
+    docsPath: missingDir,
+    include: ["**/*.md"],
+    exclude: [],
+    recursive: false,
+  };
+
+  beforeEach(() => {
+    rmSync(missingDir, { recursive: true, force: true });
+  });
+  afterEach(() => {
+    rmSync(missingDir, { recursive: true, force: true });
+  });
+
+  test("emits exactly one warning across multiple rebuilds when folder is missing", async () => {
+    // Bug: rebuild() was called twice at startup (session_start + resources_discover),
+    // causing the same "Docs folder not found" warning to fire twice. The
+    // warnedMissingDocs flag now deduplicates within a registry's lifetime.
+    const notifier = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), setContext: vi.fn() };
+
+    const reg = await DocRegistry.create(missingDir, testConfig, undefined, notifier);
+    expect(notifier.warn).toHaveBeenCalledTimes(1);
+    expect(notifier.warn).toHaveBeenCalledWith(expect.stringContaining("Docs folder not found"));
+
+    // A second rebuild (simulating resources_discover firing) must NOT re-warn.
+    await reg.rebuild();
+    expect(notifier.warn).toHaveBeenCalledTimes(1);
+
+    // A third rebuild (e.g. /doc-reload) also must NOT re-warn.
+    await reg.rebuild();
+    expect(notifier.warn).toHaveBeenCalledTimes(1);
+  });
+
+  test("rebuild clears entries to empty when folder is missing", async () => {
+    const notifier = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), setContext: vi.fn() };
+    const reg = await DocRegistry.create(missingDir, testConfig, undefined, notifier);
+    expect(reg.getEntries()).toEqual([]);
+  });
+
+  test("rebuild succeeds silently when folder exists (no warning)", async () => {
+    mkdirSync(missingDir, { recursive: true });
+    writeFileSync(
+      join(missingDir, "a.md"),
+      "---\ntitle: A\nkeywords: [a]\n---\nbody.\n",
+    );
+
+    const notifier = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), setContext: vi.fn() };
+    const reg = await DocRegistry.create(missingDir, testConfig, undefined, notifier);
+    expect(notifier.warn).not.toHaveBeenCalled();
+    expect(reg.getEntries().length).toBe(1);
+  });
+
+  test("treats a file at docsPath as missing (not a directory)", async () => {
+    // docsPath exists but is a regular file, not a directory.
+    mkdirSync(missingDir, { recursive: true });
+    const filePath = join(missingDir, "not-a-dir.md");
+    writeFileSync(filePath, "# not a directory\n");
+
+    const notifier = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), setContext: vi.fn() };
+    // Point docsPath at the file (not the dir).
+    const reg = await DocRegistry.create(filePath, testConfig, undefined, notifier);
+    expect(notifier.warn).toHaveBeenCalledTimes(1);
+    expect(notifier.warn).toHaveBeenCalledWith(expect.stringContaining("Docs folder not found"));
+    expect(reg.getEntries()).toEqual([]);
+  });
+});
+
 
