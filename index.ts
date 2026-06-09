@@ -63,8 +63,8 @@
  * is cleared after injection, and `markInjected()` operates on the registry's
  * current entries, not the stale array.
  */
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { resolve } from "node:path";
 import { loadCache, saveCache } from "./cache";
 import { loadConfig } from "./config";
@@ -73,7 +73,7 @@ import { buildKeywordGenPrompt } from "./keyword-llm";
 import { extractText, KeywordMatcher } from "./matcher";
 import { ExtensionNotifier, type Notifier } from "./notifier";
 import { DocRegistry } from "./registry";
-import { DEFAULT_MATCHER_OPTIONS, LLM_CACHE_SENTINEL, type DocEntry, type MatchResult, type KeywordCache, type CacheEntry } from "./types";
+import { LLM_CACHE_SENTINEL, type DocEntry, type KeywordCache, type CacheEntry } from "./types";
 import { registerCommands } from "./commands";
 
 export default async function docInjectorExtension(pi: ExtensionAPI) {
@@ -134,8 +134,6 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     if (Object.keys(dirty).length > 0) {
       await safeSaveCache(cwd, dirty);
     }
-
-    const count = registry.getEntries().length;
   };
 
   const buildMatcher = (): KeywordMatcher | null => {

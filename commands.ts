@@ -1,7 +1,7 @@
 /**
  * Slash commands for the Doc Injector extension.
  */
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { DocRegistry } from "./registry";
 import type { DocInjectorConfig } from "./types";
 
@@ -43,7 +43,7 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
     } else if (a === "reset") {
       const reg = deps.getRegistry();
       if (reg) {
-        reg.reset();
+        reg.markAllNotInjected();
         ctx.ui.notify("📄 Injection state reset", "info");
       } else {
         ctx.ui.notify("📄 No registry loaded", "warning");

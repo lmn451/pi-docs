@@ -33,7 +33,6 @@ function clampInt(
 }
 
 /**
-/**
  * Validate a glob pattern array.
  * Rejects non-array or entries that aren't strings. Returns default on error.
  * Warns via the `notifier` for non-string entries.
@@ -57,12 +56,6 @@ function validateGlobArray(
     return result.length > 0 ? result : [...defaultVal];
 }
 
-/**
- * Load config from `.pi/doc-injector.json` relative to the given cwd.
- * Now async — uses readFile from fs/promises.
- * Validates and clamps all numeric fields. Falls back to DEFAULT_CONFIG
- * if file doesn't exist or is invalid.
- */
 /**
  * Load config from `.pi/doc-injector.json` relative to the given cwd.
  * Async — uses readFile from fs/promises. Validates and clamps all numeric

@@ -1,6 +1,6 @@
 {
   "name": "pi-doc-injector",
-  "version": "0.5.3",
+  "version": "0.5.6",
   "description": "Auto-inject relevant project documentation into Pi's LLM context based on keyword matching",
   "type": "module",
   "main": "./index.ts",
@@ -15,7 +15,8 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "pi-package",
@@ -35,10 +36,11 @@
     ]
   },
   "dependencies": {
-    "picomatch": "^4.0.2"
+    "picomatch": "^4.0.2",
+    "typebox": "^1.1.38"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "^0.79.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

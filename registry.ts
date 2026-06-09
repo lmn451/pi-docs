@@ -325,8 +325,9 @@ export class DocRegistry {
    *   4. Skip (no frontmatter, no cache, autoKeywords disabled)
    *
    * LLM-generated keywords populate the cache via the `_doc_injector_keywords`
-   * tool, so they surface as `keywordSource: "cache"` on the next rebuild
-   * (their `mtimeMs` is set to the file's current mtime when written).
+   * tool with `mtimeMs` set to LLM_CACHE_SENTINEL, so they surface as
+   * `keywordSource: "llm"` on the next rebuild (the sentinel never matches a
+   * real file mtime, keeping them distinct from heuristic cache hits).
    */
   private async processFile(
     { filePath, relativePath, fileName }: ScanResult,

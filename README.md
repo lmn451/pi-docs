@@ -244,7 +244,6 @@ The `injected` flag is per-session: it's reset on `session_start` and can
 be manually cleared with `/doc-inject reset`.
 
 For the full source-level verification, see the JSDoc block in `index.ts`.
-For the full source-level verification, see the JSDoc block in `index.ts`.
 
 ## Development
 

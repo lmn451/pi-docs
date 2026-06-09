@@ -26,6 +26,11 @@ describe("KeywordMatcher", () => {
     const r2 = matcher.match("unit testing is important");
     expect(r2.length).toBeGreaterThan(0);
     expect(r2[0].matchedKeywords).toContain("testing");
+    // "test" is a substring of "testing" but not its own word here
+    expect(r2[0].matchedKeywords).not.toContain("test");
+
+    // Substrings within larger words must NOT match
+    expect(matcher.match("the latest contest results")).toHaveLength(0);
   });
 
   test("case-insensitive matching", () => {
@@ -51,9 +56,12 @@ describe("KeywordMatcher", () => {
 
     expect(matcher.match("run the test")).toHaveLength(0);
 
-    const r2 = matcher.match("unit testing with assert");
+    // "test" must NOT be double-counted inside "testing" — it only counts
+    // when it appears as its own word. Here all four keywords appear standalone.
+    const r2 = matcher.match("run a test: unit testing with assert");
     expect(r2.length).toBeGreaterThan(0);
     expect(r2[0].hitCount).toBe(4);
+    expect(r2[0].matchedKeywords).toEqual(["test", "testing", "unit", "assert"]);
   });
 
   test("already-injected docs excluded", () => {

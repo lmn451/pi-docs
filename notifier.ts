@@ -16,7 +16,7 @@
  * satisfying the `Notifier` interface (or a `vi.fn()` spy) — no real
  * extension context is needed.
  */
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export type NotifierLevel = "info" | "warning" | "error";
 
