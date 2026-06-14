@@ -112,7 +112,8 @@ Create `.pi/doc-injector.json` in your project root to customize behavior:
 ```json
 {
   "docsPath": "./docs",
-  "matchThreshold": 1,
+  "matchThreshold": 2,
+  "streamWindowSize": 500,
   "contextThreshold": 80,
   "recursive": true,
   "autoKeywords": true,
@@ -124,7 +125,8 @@ Create `.pi/doc-injector.json` in your project root to customize behavior:
 | Option             | Default    | Description                                              |
 | ------------------ | ---------- | -------------------------------------------------------- |
 | `docsPath`         | `"./docs"` | Path to docs folder (relative to project root)           |
-| `matchThreshold`   | `1`        | Minimum keyword matches required to inject a doc         |
+| `matchThreshold`   | `2`        | Minimum distinct keyword matches required to inject a doc |
+| `streamWindowSize` | `500`      | Rolling tail window (chars) scanned per streaming chunk; matches accumulate across chunks. `0` scans the full buffer |
 | `contextThreshold` | `80`       | Skip injection when context usage exceeds this % (0–100) |
 | `recursive`        | `true`     | Scan docs subdirectories recursively                     |
 | `autoKeywords`     | `true`     | Generate keywords heuristically when frontmatter is missing |
