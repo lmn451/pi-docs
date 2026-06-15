@@ -338,12 +338,15 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   // ---- Event: message_end (finalize matches) ----
   // Notification moved to before_agent_start so it fires for both user-triggered
   // and auto-abort-triggered injections. message_end now just resets state.
+  // State resets run BEFORE the role/registry guards so a non-assistant
+  // message_end (e.g. tool result, user message) can never leak a stale
+  // textBuffer or streamHits into the next assistant turn.
   pi.on("message_end", async (event, _ctx) => {
+    textBuffer = "";
+    streamHits.clear();
     if (!enabled || !registry) return;
     const msg = event.message;
     if (msg.role !== "assistant") return;
-    textBuffer = "";
-    streamHits.clear();
   });
 
   // ---- Event: before_agent_start (inject as CustomMessage) ----
