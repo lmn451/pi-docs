@@ -689,6 +689,129 @@ describe("Doc Injector Extension - Auto-Abort on Stream", () => {
   });
 });
 
+describe("Doc Injector Extension - Multi-Chunk Stream Accumulation", () => {
+  // Verifies that distinct keywords seen across multiple streaming chunks are
+  // unioned in streamHits, so the matchThreshold can be met even when no
+  // single chunk's tail window contains enough keywords on its own. This is
+  // the contract behind the streamWindowSize config: the window bounds
+  // per-chunk cost, but matchThreshold is still a property of the WHOLE
+  // message, not of any individual chunk.
+  //
+  // Fixture doc `testing-guide.md` has keywords [testing, unit test, bun].
+  beforeEach(() => {
+    setupDocs();
+    // matchThreshold: 2 makes accumulation observable — with 1, a single
+    // chunk would always promote on its own.
+    mkdirSync(resolve(__dirname, ".pi"), { recursive: true });
+    writeFileSync(
+      resolve(__dirname, ".pi", "doc-injector.json"),
+      JSON.stringify({
+        docsPath: "./fixtures/docs",
+        matchThreshold: 2,
+        // Small window so 'testing' (in chunk 1) scrolls out before 'bun'
+        // appears in a later chunk.
+        streamWindowSize: 30,
+        contextThreshold: 90,
+        recursive: true,
+      }),
+    );
+  });
+  afterEach(() => { cleanupDocs(); cleanupConfig(); });
+
+  test("promotes doc when distinct keywords appear in different chunks' windows", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    api._setIdle(false);
+
+    // Chunk 1 (88 chars): 'testing' is at pos 80-87, inside the trailing
+    // 30-char window [58, 87]. → matcher sees 'testing', streamHits = {testing}, size 1 < 2.
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "x".repeat(80) + " testing" } },
+      api._sessionCtx,
+    );
+    let abortCalls = (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls;
+    expect(abortCalls.length).toBe(0);
+
+    // Chunk 2 (179 chars): 'testing' is now at pos 80-87, outside the trailing
+    // 30-char window [149, 178]. 'bun' is at pos 170-172, inside the window.
+    // → matcher sees 'bun', streamHits = {testing, bun}, size 2 → PROMOTED → abort.
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "x".repeat(80) + " testing" + "x".repeat(80) + " bun tail" } },
+      api._sessionCtx,
+    );
+    abortCalls = (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls;
+    expect(abortCalls.length).toBe(1);
+  });
+
+  test("does NOT promote when no chunk contains any keyword", async () => {
+    // Sanity check: without any keyword in any chunk's window, streamHits
+    // never accumulates to the threshold. Confirms accumulation doesn't
+    // manufacture matches from nothing.
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    api._setIdle(false);
+
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "x".repeat(200) } },
+      api._sessionCtx,
+    );
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "x".repeat(400) } },
+      api._sessionCtx,
+    );
+
+    const abortCalls = (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls;
+    expect(abortCalls.length).toBe(0);
+  });
+
+  test("streamHits is cleared on message_end so the next message starts fresh", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(api as unknown as Parameters<typeof docInjectorExtension>[0]);
+    await triggerSessionStart(api);
+
+    api._setIdle(false);
+
+    // Message 1: 'testing' is in chunk 1's window. streamHits = {testing}, no promotion.
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "x".repeat(80) + " testing" } },
+      api._sessionCtx,
+    );
+    await api.emit(
+      "message_end",
+      { message: { role: "assistant", content: "x".repeat(80) + " testing" } },
+      api._sessionCtx,
+    );
+    const abortCalls1 = (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls;
+    expect(abortCalls1.length).toBe(0);
+
+    // Reset the abort counter so we can observe the next message in isolation.
+    (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls.length = 0;
+
+    // Message 2: window contains 'bun' only. If streamHits was properly
+    // cleared at message_end, {bun} has size 1 < 2 → no promotion. If it
+    // wasn't cleared, the leftover {testing} from message 1 would push the
+    // union to {testing, bun} → promotion → abort.
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "x".repeat(80) + " testing" + "x".repeat(80) + " bun tail" } },
+      api._sessionCtx,
+    );
+    const abortCalls2 = (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls;
+    expect(abortCalls2.length).toBe(0);
+  });
+});
+
+
+
 describe("Doc Injector Extension - No Double Injection Validation", () => {
     // These tests rigorously verify that docs are injected at most once per
     // session. The new CustomMessage injection model inherits two independent
