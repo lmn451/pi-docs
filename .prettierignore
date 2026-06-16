@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+coverage/
+
+# Lockfile is large and noisy
+package-lock.json
+
+# Generated test artifacts
+test/integration/fixtures/
+test/integration/.pi/
+
+# Local pi config and cache
+.pi/
+
+# Plan directory (gitignored, but just in case)
+plan/

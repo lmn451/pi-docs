@@ -16,7 +16,10 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
   },
   "keywords": [
     "pi-package",
@@ -44,6 +47,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.8.4",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
