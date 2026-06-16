@@ -73,7 +73,7 @@ import { buildKeywordGenPrompt } from "./keyword-llm";
 import { extractText, KeywordMatcher } from "./matcher";
 import { ExtensionNotifier, type Notifier } from "./notifier";
 import { DocRegistry } from "./registry";
-import { LLM_CACHE_SENTINEL, type DocEntry, type KeywordCache, type CacheEntry } from "./types";
+import { LLM_CACHE_SENTINEL, type DocEntry, type KeywordCache, type CacheEntry, type MatcherOptions } from "./types";
 import { registerCommands } from "./commands";
 
 export default async function docInjectorExtension(pi: ExtensionAPI) {
@@ -88,7 +88,12 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   let initRegistryPromise: Promise<void> | null = null;
   let enabled = true;
   let textBuffer = "";
-  let pendingMatches = new Map<string, string[]>(); // filePath → matchedKeywords
+  let pendingMatches = new Map<string, string[]>(); // filePath → matchedKeywords (docs that met the threshold)
+  // filePath → distinct keywords seen so far in the CURRENT streaming message.
+  // The streaming matcher scans only a rolling tail window each chunk, so a
+  // keyword can scroll out of the window before another appears. Accumulating
+  // the union here lets matchThreshold be met across chunks; reset at message_end.
+  let streamHits = new Map<string, Set<string>>();
   let abortingForInjection = false; // guard against cascading aborts
 
   // P5.4b — Guard flags for LLM keyword generation
@@ -136,11 +141,11 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
   };
 
-  const buildMatcher = (): KeywordMatcher | null => {
+  const buildMatcher = (options?: Partial<MatcherOptions>): KeywordMatcher | null => {
     if (!registry) return null;
     return new KeywordMatcher(
       registry.getNonInjectedEntries(),
-      { matchThreshold: config.matchThreshold },
+      { matchThreshold: config.matchThreshold, ...options },
     );
   };
 
@@ -301,17 +306,27 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     textBuffer = extractText(content);
     if (!textBuffer) return;
 
-    const matcher = buildMatcher();
+    // Discovery matcher: threshold 1 finds any keyword present in the rolling
+    // tail window. The real matchThreshold is applied below against the
+    // keywords accumulated across all chunks of this message.
+    const matcher = buildMatcher({ matchThreshold: 1, windowSize: config.streamWindowSize });
     if (!matcher) return;
 
     const results = matcher.match(textBuffer);
 
     let hasNew = false;
     for (const result of results) {
-      if (!pendingMatches.has(result.entry.filePath)) {
+      const filePath = result.entry.filePath;
+      const seen = streamHits.get(filePath) ?? new Set<string>();
+      for (const kw of result.matchedKeywords) seen.add(kw);
+      streamHits.set(filePath, seen);
+
+      // Promote to a pending injection once enough distinct keywords have been
+      // seen across the message. Only the first crossing counts as "new".
+      if (seen.size >= config.matchThreshold && !pendingMatches.has(filePath)) {
+        pendingMatches.set(filePath, [...seen]);
         hasNew = true;
       }
-      pendingMatches.set(result.entry.filePath, result.matchedKeywords);
     }
 
     if (hasNew && !ctx.isIdle() && !abortingForInjection) {
@@ -323,11 +338,15 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   // ---- Event: message_end (finalize matches) ----
   // Notification moved to before_agent_start so it fires for both user-triggered
   // and auto-abort-triggered injections. message_end now just resets state.
+  // State resets run BEFORE the role/registry guards so a non-assistant
+  // message_end (e.g. tool result, user message) can never leak a stale
+  // textBuffer or streamHits into the next assistant turn.
   pi.on("message_end", async (event, _ctx) => {
+    textBuffer = "";
+    streamHits.clear();
     if (!enabled || !registry) return;
     const msg = event.message;
     if (msg.role !== "assistant") return;
-    textBuffer = "";
   });
 
   // ---- Event: before_agent_start (inject as CustomMessage) ----

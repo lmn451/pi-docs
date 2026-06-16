@@ -29,6 +29,12 @@ export interface DocEntry {
 export interface MatcherOptions {
   matchThreshold: number;
   caseSensitive: boolean;
+  /**
+   * If > 0, only the last `windowSize` characters of the text are scanned.
+   * Used by the streaming path to bound per-chunk scan cost; 0 disables
+   * windowing (scan the full text), which is the default for one-shot matches.
+   */
+  windowSize: number;
 }
 
 /** Result from a keyword match. */
@@ -68,6 +74,13 @@ export interface DocInjectorConfig {
   docsPath: string;
   /** Minimum keyword matches to trigger injection */
   matchThreshold: number;
+  /**
+   * Size (in chars) of the rolling tail window scanned on each streaming chunk.
+   * Bounds per-chunk scan cost; matches still accumulate across chunks so the
+   * threshold can be met even when keywords scroll out of the window. 0 = scan
+   * the full accumulated buffer.
+   */
+  streamWindowSize: number;
   /** Skip injection if context usage exceeds this % (0-100) */
   contextThreshold: number;
   /** Whether to scan subdirectories */
@@ -91,7 +104,8 @@ export interface DocInjectorConfig {
 /** Default configuration values. */
 export const DEFAULT_CONFIG: DocInjectorConfig = {
   docsPath: "./docs",
-  matchThreshold: 1,
+  matchThreshold: 2,
+  streamWindowSize: 500,
   contextThreshold: 80,
   recursive: true,
   include: ["**/*.md", "**/*.txt"],
@@ -107,6 +121,8 @@ export const DEFAULT_CONFIG: DocInjectorConfig = {
 export const DEFAULT_MATCHER_OPTIONS: MatcherOptions = {
   matchThreshold: DEFAULT_CONFIG.matchThreshold,
   caseSensitive: false,
+  // Default to no windowing; the streaming caller opts in via streamWindowSize.
+  windowSize: 0,
 };
 
 /**

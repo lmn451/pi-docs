@@ -33,6 +33,34 @@ describe("KeywordMatcher", () => {
     expect(matcher.match("the latest contest results")).toHaveLength(0);
   });
 
+  test("windowSize scans only the trailing chars", () => {
+    const entries = [makeEntry("test.md", ["alpha", "omega"])];
+    const matcher = new KeywordMatcher(entries, { matchThreshold: 1, windowSize: 20 });
+
+    // "alpha" sits before the last 20 chars, so it falls outside the window.
+    const text = "alpha" + " ".repeat(40) + "omega here";
+    const r = matcher.match(text);
+    expect(r[0].matchedKeywords).toContain("omega");
+    expect(r[0].matchedKeywords).not.toContain("alpha");
+  });
+
+  test("windowSize 0 scans the full text (default)", () => {
+    const entries = [makeEntry("test.md", ["alpha", "omega"])];
+    const matcher = new KeywordMatcher(entries, { matchThreshold: 1, windowSize: 0 });
+
+    const text = "alpha" + " ".repeat(40) + "omega here";
+    const r = matcher.match(text);
+    expect(r[0].matchedKeywords).toContain("alpha");
+    expect(r[0].matchedKeywords).toContain("omega");
+  });
+
+  test("windowSize shorter than text still matches within window", () => {
+    const entries = [makeEntry("test.md", ["window"])];
+    const matcher = new KeywordMatcher(entries, { matchThreshold: 1, windowSize: 10 });
+    // Keyword fully inside the trailing window.
+    expect(matcher.match("x".repeat(100) + " window")).toHaveLength(1);
+  });
+
   test("case-insensitive matching", () => {
     const entries = [makeEntry("test.md", ["test", "assert"])];
     const matcher = new KeywordMatcher(entries, { matchThreshold: 1 });

@@ -82,6 +82,15 @@ export class KeywordMatcher {
   match(text: string): MatchResult[] {
     if (!text || this.compiled.length === 0) return [];
 
+    // Rolling tail window: only scan the last `windowSize` chars. Keeps the
+    // per-chunk cost bounded on long streaming messages. Callers that need the
+    // full text (one-shot user input) pass windowSize 0. Matches still
+    // accumulate across chunks in the caller, so keywords that scroll past the
+    // window aren't lost.
+    const { windowSize } = this.options;
+    const scanText =
+      windowSize > 0 && text.length > windowSize ? text.slice(-windowSize) : text;
+
     const results: MatchResult[] = [];
 
     for (const { entry, patterns } of this.compiled) {
@@ -90,7 +99,7 @@ export class KeywordMatcher {
 
       const matchedKeywords: string[] = [];
       for (const { keyword, regex } of patterns) {
-        if (regex.test(text)) {
+        if (regex.test(scanText)) {
           matchedKeywords.push(keyword);
         }
       }

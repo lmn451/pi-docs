@@ -72,6 +72,7 @@ export async function loadConfig(cwd: string, notifier: Notifier): Promise<DocIn
         return {
             docsPath: parsed.docsPath ?? DEFAULT_CONFIG.docsPath,
             matchThreshold: clampInt(parsed.matchThreshold, DEFAULT_CONFIG.matchThreshold, 1, Infinity, "matchThreshold", notifier),
+            streamWindowSize: clampInt(parsed.streamWindowSize, DEFAULT_CONFIG.streamWindowSize, 0, Infinity, "streamWindowSize", notifier),
             contextThreshold: clampInt(parsed.contextThreshold, DEFAULT_CONFIG.contextThreshold, 0, 100, "contextThreshold", notifier),
             recursive: parsed.recursive ?? DEFAULT_CONFIG.recursive,
             include: validateGlobArray(parsed.include, DEFAULT_CONFIG.include, notifier),
