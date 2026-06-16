@@ -35,7 +35,10 @@ describe("KeywordMatcher", () => {
 
   test("windowSize scans only the trailing chars", () => {
     const entries = [makeEntry("test.md", ["alpha", "omega"])];
-    const matcher = new KeywordMatcher(entries, { matchThreshold: 1, windowSize: 20 });
+    const matcher = new KeywordMatcher(entries, {
+      matchThreshold: 1,
+      windowSize: 20,
+    });
 
     // "alpha" sits before the last 20 chars, so it falls outside the window.
     const text = "alpha" + " ".repeat(40) + "omega here";
@@ -46,7 +49,10 @@ describe("KeywordMatcher", () => {
 
   test("windowSize 0 scans the full text (default)", () => {
     const entries = [makeEntry("test.md", ["alpha", "omega"])];
-    const matcher = new KeywordMatcher(entries, { matchThreshold: 1, windowSize: 0 });
+    const matcher = new KeywordMatcher(entries, {
+      matchThreshold: 1,
+      windowSize: 0,
+    });
 
     const text = "alpha" + " ".repeat(40) + "omega here";
     const r = matcher.match(text);
@@ -56,7 +62,10 @@ describe("KeywordMatcher", () => {
 
   test("windowSize shorter than text still matches within window", () => {
     const entries = [makeEntry("test.md", ["window"])];
-    const matcher = new KeywordMatcher(entries, { matchThreshold: 1, windowSize: 10 });
+    const matcher = new KeywordMatcher(entries, {
+      matchThreshold: 1,
+      windowSize: 10,
+    });
     // Keyword fully inside the trailing window.
     expect(matcher.match("x".repeat(100) + " window")).toHaveLength(1);
   });
@@ -72,14 +81,19 @@ describe("KeywordMatcher", () => {
 
   test("case-sensitive matching when enabled", () => {
     const entries = [makeEntry("test.md", ["TEST"])];
-    const matcher = new KeywordMatcher(entries, { caseSensitive: true, matchThreshold: 1 });
+    const matcher = new KeywordMatcher(entries, {
+      caseSensitive: true,
+      matchThreshold: 1,
+    });
 
     expect(matcher.match("this is a test")).toHaveLength(0);
     expect(matcher.match("this is a TEST")).toHaveLength(1);
   });
 
   test("threshold filtering", () => {
-    const entries = [makeEntry("test.md", ["test", "testing", "unit", "assert"])];
+    const entries = [
+      makeEntry("test.md", ["test", "testing", "unit", "assert"]),
+    ];
     const matcher = new KeywordMatcher(entries, { matchThreshold: 3 });
 
     expect(matcher.match("run the test")).toHaveLength(0);
@@ -89,7 +103,12 @@ describe("KeywordMatcher", () => {
     const r2 = matcher.match("run a test: unit testing with assert");
     expect(r2.length).toBeGreaterThan(0);
     expect(r2[0].hitCount).toBe(4);
-    expect(r2[0].matchedKeywords).toEqual(["test", "testing", "unit", "assert"]);
+    expect(r2[0].matchedKeywords).toEqual([
+      "test",
+      "testing",
+      "unit",
+      "assert",
+    ]);
   });
 
   test("already-injected docs excluded", () => {
@@ -150,9 +169,7 @@ describe("KeywordMatcher", () => {
   });
 
   test("handles consecutive special characters in keywords", () => {
-    const entries = [
-      makeEntry("consecutive.md", ["$$", "$^", "**"]),
-    ];
+    const entries = [makeEntry("consecutive.md", ["$$", "$^", "**"])];
     const matcher = new KeywordMatcher(entries, { matchThreshold: 1 });
 
     const r1 = matcher.match("use $$ for display math");

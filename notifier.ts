@@ -21,51 +21,51 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 export type NotifierLevel = "info" | "warning" | "error";
 
 export interface Notifier {
-    /** Show an informational message. */
-    info(message: string): void;
-    /** Show a warning. */
-    warn(message: string): void;
-    /** Show an error. */
-    error(message: string): void;
-    /**
-     * Bind a context. Flushes any buffered messages via `ctx.ui.notify()`
-     * in arrival order. Idempotent: re-calling replaces the context and
-     * clears the buffer (already-flushed messages are not re-sent).
-     */
-    setContext(ctx: ExtensionContext): void;
+  /** Show an informational message. */
+  info(message: string): void;
+  /** Show a warning. */
+  warn(message: string): void;
+  /** Show an error. */
+  error(message: string): void;
+  /**
+   * Bind a context. Flushes any buffered messages via `ctx.ui.notify()`
+   * in arrival order. Idempotent: re-calling replaces the context and
+   * clears the buffer (already-flushed messages are not re-sent).
+   */
+  setContext(ctx: ExtensionContext): void;
 }
 
 /** Production notifier. Buffers until a context is bound. */
 export class ExtensionNotifier implements Notifier {
-    private ctx: ExtensionContext | null = null;
-    private buffer: Array<{ level: NotifierLevel; message: string }> = [];
+  private ctx: ExtensionContext | null = null;
+  private buffer: Array<{ level: NotifierLevel; message: string }> = [];
 
-    setContext(ctx: ExtensionContext): void {
-        this.ctx = ctx;
-        const pending = this.buffer;
-        this.buffer = [];
-        for (const { level, message } of pending) {
-            ctx.ui.notify(message, level);
-        }
+  setContext(ctx: ExtensionContext): void {
+    this.ctx = ctx;
+    const pending = this.buffer;
+    this.buffer = [];
+    for (const { level, message } of pending) {
+      ctx.ui.notify(message, level);
     }
+  }
 
-    info(message: string): void {
-        this.emit("info", message);
-    }
+  info(message: string): void {
+    this.emit("info", message);
+  }
 
-    warn(message: string): void {
-        this.emit("warning", message);
-    }
+  warn(message: string): void {
+    this.emit("warning", message);
+  }
 
-    error(message: string): void {
-        this.emit("error", message);
-    }
+  error(message: string): void {
+    this.emit("error", message);
+  }
 
-    private emit(level: NotifierLevel, message: string): void {
-        if (this.ctx) {
-            this.ctx.ui.notify(message, level);
-        } else {
-            this.buffer.push({ level, message });
-        }
+  private emit(level: NotifierLevel, message: string): void {
+    if (this.ctx) {
+      this.ctx.ui.notify(message, level);
+    } else {
+      this.buffer.push({ level, message });
     }
+  }
 }

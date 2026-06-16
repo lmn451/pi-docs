@@ -23,21 +23,29 @@ export interface FileInput {
 export function buildKeywordGenPrompt(files: FileInput[]): string {
   if (files.length === 0) return "";
 
-  const fileDescriptions = files.map((f, i) => {
-    const existing = f.existingKeywords.length > 0
-      ? `  Existing keywords: ${f.existingKeywords.join(", ")}`
-      : "";
-    // Escape markdown special chars in path to prevent prompt injection
-    const safePath = f.path.replace(/[*`\[\]]/g, "\\$&");
-    // Escape backticks in snippet to prevent breaking code fences
-    const safeSnippet = f.snippet.replace(/```/g, "'''");
-    return `${i + 1}. **${safePath}**\n${existing}\n   Snippet:\n\`\`\`\n${safeSnippet}\n\`\`\``;
-  }).join("\n\n");
+  const fileDescriptions = files
+    .map((f, i) => {
+      const existing =
+        f.existingKeywords.length > 0
+          ? `  Existing keywords: ${f.existingKeywords.join(", ")}`
+          : "";
+      // Escape markdown special chars in path to prevent prompt injection
+      const safePath = f.path.replace(/[*`\[\]]/g, "\\$&");
+      // Escape backticks in snippet to prevent breaking code fences
+      const safeSnippet = f.snippet.replace(/```/g, "'''");
+      return `${i + 1}. **${safePath}**\n${existing}\n   Snippet:\n\`\`\`\n${safeSnippet}\n\`\`\``;
+    })
+    .join("\n\n");
 
-  const expectedOutput = files.map((f) => {
-    const safePath = f.path.replace(/[*`\[\]]/g, "\\$&");
-    return `  - "${safePath}": keywords array incorporating relevant existing keywords [${f.existingKeywords.slice(0, 5).map(k => `"${k}"`).join(", ")}${f.existingKeywords.length > 5 ? ", ..." : ""}]`;
-  }).join("\n");
+  const expectedOutput = files
+    .map((f) => {
+      const safePath = f.path.replace(/[*`\[\]]/g, "\\$&");
+      return `  - "${safePath}": keywords array incorporating relevant existing keywords [${f.existingKeywords
+        .slice(0, 5)
+        .map((k) => `"${k}"`)
+        .join(", ")}${f.existingKeywords.length > 5 ? ", ..." : ""}]`;
+    })
+    .join("\n");
 
   return `Generate documentation keywords for the following ${files.length} file(s). For each file, read the snippet and produce 3-10 concise, searchable keywords that someone might type when looking for this documentation.
 

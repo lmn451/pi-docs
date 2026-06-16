@@ -38,8 +38,8 @@ function sanitizeKeywords(keywords: string[]): string[] {
  * `before_agent_start`'s `message.content` and sent to the LLM.
  */
 export function buildInjectionContent(
-    entries: DocEntry[],
-    matchedKeywords: Map<string, string[]>,
+  entries: DocEntry[],
+  matchedKeywords: Map<string, string[]>,
 ): string {
   if (entries.length === 0) return "";
 
@@ -77,6 +77,9 @@ export function notifyInjection(
   for (const entry of entries) {
     const keywords = matchedKeywords.get(entry.filePath) ?? [];
     const kwList = keywords.join(", ");
-    ui.notify(`📄 Injected: ${entry.relativePath} (matched: ${kwList})`, "info");
+    ui.notify(
+      `📄 Injected: ${entry.relativePath} (matched: ${kwList})`,
+      "info",
+    );
   }
 }

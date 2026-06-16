@@ -29,7 +29,10 @@ describe("loadCache", () => {
   });
 
   test("returns empty cache for corrupted JSON", async () => {
-    writeFileSync(join(TEST_DIR, ".pi", "doc-injector-cache.json"), "not json {{{");
+    writeFileSync(
+      join(TEST_DIR, ".pi", "doc-injector-cache.json"),
+      "not json {{{",
+    );
     const cache = await loadCache(TEST_DIR, silentNotifier);
     expect(cache.version).toBe(1);
     expect(cache.files).toEqual({});
@@ -48,7 +51,9 @@ describe("loadCache", () => {
   test("returns empty cache when version field is missing", async () => {
     writeFileSync(
       join(TEST_DIR, ".pi", "doc-injector-cache.json"),
-      JSON.stringify({ files: { "test.md": { mtimeMs: 123, keywords: ["a"] } } }),
+      JSON.stringify({
+        files: { "test.md": { mtimeMs: 123, keywords: ["a"] } },
+      }),
     );
     const cache = await loadCache(TEST_DIR, silentNotifier);
     expect(cache.version).toBe(1);

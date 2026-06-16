@@ -10,19 +10,28 @@ import { generateKeywords } from "../keyword-gen";
 describe("generateKeywords", () => {
   describe("filename parsing", () => {
     test("extracts keywords from dash-separated filename", () => {
-      const keywords = generateKeywords("api-authentication.md", "# API Auth\n\nSome content.");
+      const keywords = generateKeywords(
+        "api-authentication.md",
+        "# API Auth\n\nSome content.",
+      );
       expect(keywords).toContain("api");
       expect(keywords).toContain("authentication");
     });
 
     test("extracts keywords from underscore-separated filename", () => {
-      const keywords = generateKeywords("user_login.ts", "export function login() {}");
+      const keywords = generateKeywords(
+        "user_login.ts",
+        "export function login() {}",
+      );
       expect(keywords).toContain("user");
       expect(keywords).toContain("login");
     });
 
     test("extracts keywords from dot-separated filename parts", () => {
-      const keywords = generateKeywords("config.test.ts", "describe('config', () => {});");
+      const keywords = generateKeywords(
+        "config.test.ts",
+        "describe('config', () => {});",
+      );
       expect(keywords).toContain("config");
       expect(keywords).toContain("test");
     });
@@ -169,7 +178,9 @@ describe("generateKeywords", () => {
   describe("20-keyword cap", () => {
     test("never returns more than 20 keywords", () => {
       // Generate a file with many unique words
-      const manyWords = Array.from({ length: 50 }, (_, i) => `word${i}`).join(" ");
+      const manyWords = Array.from({ length: 50 }, (_, i) => `word${i}`).join(
+        " ",
+      );
       const keywords = generateKeywords(
         "doc.md",
         `# ${manyWords}\n\n${Array.from({ length: 30 }, (_, i) => `function func${i}() {}`).join("\n")}`,

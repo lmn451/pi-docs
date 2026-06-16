@@ -1,6 +1,18 @@
 ---
 title: "Testing Workflow"
-keywords: [test, testing, unit test, integration test, tdd, jest, vitest, assert, mock, stub]
+keywords:
+  [
+    test,
+    testing,
+    unit test,
+    integration test,
+    tdd,
+    jest,
+    vitest,
+    assert,
+    mock,
+    stub,
+  ]
 ---
 
 # Testing Workflow
@@ -39,16 +51,19 @@ npm run test:coverage
 ## Test Categories
 
 ### Unit Tests
+
 - Test individual functions in isolation
 - Mock external dependencies
 - Fast execution (< 100ms per test)
 
 ### Integration Tests
+
 - Test module interactions
 - May use real dependencies
 - Slower than unit tests
 
 ### End-to-End Tests
+
 - Test complete user workflows
 - Run against a staging environment
 - Slowest but most valuable

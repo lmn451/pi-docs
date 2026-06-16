@@ -17,8 +17,8 @@
 import type { Notifier } from "../../notifier";
 
 export const silentNotifier: Notifier = {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    setContext: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  setContext: () => {},
 };

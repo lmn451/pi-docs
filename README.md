@@ -58,10 +58,10 @@ keywords: [test, testing, jest, vitest]
 **2. C-style block comment** — useful for `.ts`/`.js` doc files:
 
 ```md
-/*---
+/_---
 title: "Testing Workflow"
 keywords: [test, testing, jest, vitest]
----*/
+---_/
 
 # Testing Workflow
 ```
@@ -92,11 +92,12 @@ keywords: [test, testing, jest, vitest]
 Both **flow** and **block** keyword array syntaxes are supported:
 
 ```md
-keywords: [test, testing, jest]          # flow: comma-separated in brackets
-keywords:                              # block: one per line
-  - test
-  - testing
-  - jest
+keywords: [test, testing, jest] # flow: comma-separated in brackets
+keywords: # block: one per line
+
+- test
+- testing
+- jest
 ```
 
 ### Auto-Keywords Fallback
@@ -122,16 +123,16 @@ Create `.pi/doc-injector.json` in your project root to customize behavior:
 }
 ```
 
-| Option             | Default    | Description                                              |
-| ------------------ | ---------- | -------------------------------------------------------- |
-| `docsPath`         | `"./docs"` | Path to docs folder (relative to project root)           |
-| `matchThreshold`   | `2`        | Minimum distinct keyword matches required to inject a doc |
+| Option             | Default    | Description                                                                                                          |
+| ------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------- |
+| `docsPath`         | `"./docs"` | Path to docs folder (relative to project root)                                                                       |
+| `matchThreshold`   | `2`        | Minimum distinct keyword matches required to inject a doc                                                            |
 | `streamWindowSize` | `500`      | Rolling tail window (chars) scanned per streaming chunk; matches accumulate across chunks. `0` scans the full buffer |
-| `contextThreshold` | `80`       | Skip injection when context usage exceeds this % (0–100) |
-| `recursive`        | `true`     | Scan docs subdirectories recursively                     |
-| `autoKeywords`     | `true`     | Generate keywords heuristically when frontmatter is missing |
-| `llmKeywords`      | `false`    | Enable LLM-based keyword generation (see below)          |
-| `llmBatchSize`     | `20`       | Max files per LLM keyword batch                          |
+| `contextThreshold` | `80`       | Skip injection when context usage exceeds this % (0–100)                                                             |
+| `recursive`        | `true`     | Scan docs subdirectories recursively                                                                                 |
+| `autoKeywords`     | `true`     | Generate keywords heuristically when frontmatter is missing                                                          |
+| `llmKeywords`      | `false`    | Enable LLM-based keyword generation (see below)                                                                      |
+| `llmBatchSize`     | `20`       | Max files per LLM keyword batch                                                                                      |
 
 ### Keyword Matching
 
@@ -141,15 +142,15 @@ Injection is also skipped if the current context usage exceeds 80% of the token 
 
 ## Commands
 
-| Command              | Description                                          |
-| -------------------- | ---------------------------------------------------- |
-| `/doc-inject on`     | Enable doc injection                                 |
-| `/doc-inject off`    | Disable doc injection                                |
-| `/doc-inject toggle` | Toggle doc injection on/off                          |
-| `/doc-inject list`   | List all registered docs and their injection status  |
-| `/doc-inject reset`  | Reset all injected flags (docs become re-injectable) |
-| `/doc-inject status` | Show current injection status and config             |
-| `/doc-reload`        | Re-scan docs folder and rebuild registry             |
+| Command              | Description                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| `/doc-inject on`     | Enable doc injection                                                                         |
+| `/doc-inject off`    | Disable doc injection                                                                        |
+| `/doc-inject toggle` | Toggle doc injection on/off                                                                  |
+| `/doc-inject list`   | List all registered docs and their injection status                                          |
+| `/doc-inject reset`  | Reset all injected flags (docs become re-injectable)                                         |
+| `/doc-inject status` | Show current injection status and config                                                     |
+| `/doc-reload`        | Re-scan docs folder and rebuild registry                                                     |
 | `/doc-keywords-gen`  | Generate LLM keywords for files without frontmatter (requires `llmKeywords: true` in config) |
 
 ## Keyword Generation
@@ -186,12 +187,12 @@ The LLM reads each file's content and produces 3–10 relevant, searchable keywo
 
 The cache stores which method was used for each file's keywords:
 
-| Source       | How set                                          |
-| ------------ | ------------------------------------------------ |
-| `frontmatter` | Keywords declared in file frontmatter             |
-| `cache`      | Reused from previous scan (mtime match)          |
-| `heuristic`  | Auto-generated from filename/content             |
-| `llm`        | Generated via `/doc-keywords-gen`                |
+| Source        | How set                                 |
+| ------------- | --------------------------------------- |
+| `frontmatter` | Keywords declared in file frontmatter   |
+| `cache`       | Reused from previous scan (mtime match) |
+| `heuristic`   | Auto-generated from filename/content    |
+| `llm`         | Generated via `/doc-keywords-gen`       |
 
 Use `/doc-inject list` to see each file's keyword source (shown as `[source]` tag).
 

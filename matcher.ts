@@ -21,7 +21,10 @@ export function extractText(content: unknown): string {
   for (const block of content) {
     if (!block || typeof block !== "object") continue;
     const b = block as Record<string, unknown>;
-    if ((b.type === "text" || b.type === "thinking") && typeof b.text === "string") {
+    if (
+      (b.type === "text" || b.type === "thinking") &&
+      typeof b.text === "string"
+    ) {
       parts.push(b.text);
     }
   }
@@ -48,7 +51,9 @@ function escapeRegExp(s: string): string {
 function buildKeywordRegex(keyword: string, caseSensitive: boolean): RegExp {
   const escaped = escapeRegExp(keyword);
   const left = WORD_CHAR.test(keyword[0]) ? "(?<![A-Za-z0-9_])" : "";
-  const right = WORD_CHAR.test(keyword[keyword.length - 1]) ? "(?![A-Za-z0-9_])" : "";
+  const right = WORD_CHAR.test(keyword[keyword.length - 1])
+    ? "(?![A-Za-z0-9_])"
+    : "";
   return new RegExp(`${left}${escaped}${right}`, caseSensitive ? "" : "i");
 }
 
@@ -74,7 +79,10 @@ export class KeywordMatcher {
       patterns: (entry.keywords ?? [])
         // Skip empty/whitespace keywords — they'd match everything.
         .filter((kw) => kw && kw.trim().length > 0)
-        .map((keyword) => ({ keyword, regex: buildKeywordRegex(keyword, this.options.caseSensitive) })),
+        .map((keyword) => ({
+          keyword,
+          regex: buildKeywordRegex(keyword, this.options.caseSensitive),
+        })),
     }));
   }
 
@@ -89,7 +97,9 @@ export class KeywordMatcher {
     // window aren't lost.
     const { windowSize } = this.options;
     const scanText =
-      windowSize > 0 && text.length > windowSize ? text.slice(-windowSize) : text;
+      windowSize > 0 && text.length > windowSize
+        ? text.slice(-windowSize)
+        : text;
 
     const results: MatchResult[] = [];
 

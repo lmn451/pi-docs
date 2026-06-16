@@ -22,7 +22,10 @@ const CACHE_VERSION = 1;
  * Recoverable issues (corrupt JSON, wrong version) emit a warning via the
  * `notifier`. ENOENT (no cache file yet) is silent.
  */
-export async function loadCache(cwd: string, notifier: Notifier): Promise<KeywordCache> {
+export async function loadCache(
+  cwd: string,
+  notifier: Notifier,
+): Promise<KeywordCache> {
   const cachePath = join(cwd, CACHE_FILENAME);
 
   try {
@@ -41,7 +44,9 @@ export async function loadCache(cwd: string, notifier: Notifier): Promise<Keywor
     // ENOENT = no cache file yet, that's fine
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       const detail = err instanceof Error ? err.message : String(err);
-      notifier.warn(`[doc-injector] Failed to read cache at ${cachePath}: ${detail}`);
+      notifier.warn(
+        `[doc-injector] Failed to read cache at ${cachePath}: ${detail}`,
+      );
     }
     return emptyCache();
   }

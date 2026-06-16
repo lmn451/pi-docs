@@ -63,7 +63,10 @@
  * is cleared after injection, and `markInjected()` operates on the registry's
  * current entries, not the stale array.
  */
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { resolve } from "node:path";
 import { loadCache, saveCache } from "./cache";
@@ -73,7 +76,13 @@ import { buildKeywordGenPrompt } from "./keyword-llm";
 import { extractText, KeywordMatcher } from "./matcher";
 import { ExtensionNotifier, type Notifier } from "./notifier";
 import { DocRegistry } from "./registry";
-import { LLM_CACHE_SENTINEL, type DocEntry, type KeywordCache, type CacheEntry, type MatcherOptions } from "./types";
+import {
+  LLM_CACHE_SENTINEL,
+  type DocEntry,
+  type KeywordCache,
+  type CacheEntry,
+  type MatcherOptions,
+} from "./types";
 import { registerCommands } from "./commands";
 
 export default async function docInjectorExtension(pi: ExtensionAPI) {
@@ -110,7 +119,10 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   };
   const getConfig = () => config;
 
-  const safeSaveCache = async (cwd: string, dirtyEntries: Record<string, CacheEntry>) => {
+  const safeSaveCache = async (
+    cwd: string,
+    dirtyEntries: Record<string, CacheEntry>,
+  ) => {
     // MAJOR-2 fix: before saveCache, re-read cache from disk to merge
     // LLM-written entries that may have landed during the scan.
     const freshCache = await loadCache(cwd, notifier);
@@ -141,12 +153,14 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
   };
 
-  const buildMatcher = (options?: Partial<MatcherOptions>): KeywordMatcher | null => {
+  const buildMatcher = (
+    options?: Partial<MatcherOptions>,
+  ): KeywordMatcher | null => {
     if (!registry) return null;
-    return new KeywordMatcher(
-      registry.getNonInjectedEntries(),
-      { matchThreshold: config.matchThreshold, ...options },
-    );
+    return new KeywordMatcher(registry.getNonInjectedEntries(), {
+      matchThreshold: config.matchThreshold,
+      ...options,
+    });
   };
 
   // P5.4f — generateKeywordsLLM: sets keywordGenInFlight and sends a user message
@@ -177,7 +191,10 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       ),
     }),
     execute: async (_id, params, _signal, _onUpdate, ctx) => {
-      const generated = params.keywords as Array<{ path: string; keywords: string[] }>;
+      const generated = params.keywords as Array<{
+        path: string;
+        keywords: string[];
+      }>;
       const { stat } = await import("node:fs/promises");
       let saved = 0;
       for (const item of generated) {
@@ -198,7 +215,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       llmBatchesCompleted++;
       llmTotalFiles += saved;
       return {
-        content: [{ type: "text" as const, text: `Keywords saved for ${saved} files.` }],
+        content: [
+          { type: "text" as const, text: `Keywords saved for ${saved} files.` },
+        ],
         details: undefined as never,
       };
     },
@@ -309,7 +328,10 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     // Discovery matcher: threshold 1 finds any keyword present in the rolling
     // tail window. The real matchThreshold is applied below against the
     // keywords accumulated across all chunks of this message.
-    const matcher = buildMatcher({ matchThreshold: 1, windowSize: config.streamWindowSize });
+    const matcher = buildMatcher({
+      matchThreshold: 1,
+      windowSize: config.streamWindowSize,
+    });
     if (!matcher) return;
 
     const results = matcher.match(textBuffer);
@@ -375,7 +397,13 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     // (default: 80%). This prevents doc injection from pushing the context
     // past the model's limit.
     const usage = ctx.getContextUsage();
-    if (usage && usage.tokens && usage.tokens > 0 && usage.percent && usage.percent > config.contextThreshold) {
+    if (
+      usage &&
+      usage.tokens &&
+      usage.tokens > 0 &&
+      usage.percent &&
+      usage.percent > config.contextThreshold
+    ) {
       pendingMatches.clear();
       return;
     }

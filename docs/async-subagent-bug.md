@@ -31,7 +31,7 @@ The current doc-injector design assumes it can abort the current turn and restar
 pi.on("message_update", async (event, ctx) => {
   if (hasNew && !ctx.isIdle() && !abortingForInjection) {
     abortingForInjection = true;
-    ctx.abort();  // ← PROBLEM: aborts current turn
+    ctx.abort(); // ← PROBLEM: aborts current turn
   }
 });
 
@@ -40,7 +40,7 @@ pi.on("agent_end", async (event, ctx) => {
   if (abortingForInjection) {
     abortingForInjection = false;
     setTimeout(() => {
-      pi.sendUserMessage("continue");  // ← PROBLEM: disrupts async flow
+      pi.sendUserMessage("continue"); // ← PROBLEM: disrupts async flow
     }, 0);
   }
 });
@@ -68,15 +68,18 @@ signal: undefined, // async: don't inherit parent signal (would abort subagent w
 **Change:** Never call `ctx.abort()` in `message_update`. Just record matches and inject on next turn.
 
 **Pros:**
+
 - ✅ Simplest fix
 - ✅ Works with ANY async workflow automatically
 - ✅ No special-casing for subagents
 
 **Cons:**
+
 - ❌ Loses "immediate injection during streaming" optimization
 - ❌ Docs injected on next turn instead of immediately
 
 **Implementation:**
+
 ```typescript
 pi.on("message_update", async (event, ctx) => {
   if (keywordGenInFlight) return;
@@ -93,7 +96,7 @@ pi.on("message_update", async (event, ctx) => {
   const results = matcher.match(textBuffer);
   for (const result of results) {
     if (!pendingMatches.has(result.entry.filePath)) {
-      hasNew = true;  // Just record - don't abort
+      hasNew = true; // Just record - don't abort
     }
     pendingMatches.set(result.entry.filePath, result.matchedKeywords);
   }
@@ -108,10 +111,12 @@ pi.on("message_update", async (event, ctx) => {
 **Change:** Check if assistant just spawned async subagents, skip abort if so.
 
 **Pros:**
+
 - ✅ Preserves immediate injection behavior
 - ✅ Subagents continue running
 
 **Cons:**
+
 - ❌ Fragile - depends on detecting specific tool call patterns
 - ❌ Doesn't scale to other async workflows
 
@@ -120,10 +125,12 @@ pi.on("message_update", async (event, ctx) => {
 **Change:** Only trigger immediate injection on `input` event (user messages), not on assistant streaming.
 
 **Pros:**
+
 - ✅ Clean separation of concerns
 - ✅ User intent gets immediate response
 
 **Cons:**
+
 - ❌ Loses streaming injection optimization
 - ❌ Still may not handle all async edge cases
 

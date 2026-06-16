@@ -3,7 +3,11 @@ import { silentNotifier } from "./_helpers/silentNotifier";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
-import { DEFAULT_CONFIG, LLM_CACHE_SENTINEL, type DocInjectorConfig } from "../types";
+import {
+  DEFAULT_CONFIG,
+  LLM_CACHE_SENTINEL,
+  type DocInjectorConfig,
+} from "../types";
 
 /** Minimal config for registry tests — scans .md files only. */
 const TEST_CONFIG: DocInjectorConfig = {
@@ -209,16 +213,46 @@ describe("DocRegistry recursive scanning", () => {
   });
 
   test("recursive=true finds nested .md files", async () => {
-    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: true }, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      {
+        ...DEFAULT_CONFIG,
+        docsPath: tmpDir,
+        include: ["**/*.md"],
+        exclude: [],
+        recursive: true,
+      },
+      undefined,
+      silentNotifier,
+    );
     const entries = reg.getEntries();
     expect(entries.length).toBe(2);
     const relPaths = entries.map((e) => e.relativePath);
-    expect(relPaths.some((p) => p.includes("nested") || p.includes("sub"))).toBe(true);
-    expect(entries.every((e) => e.fileName === basename(e.relativePath) || e.fileName === e.relativePath.split("/").pop())).toBe(true);
+    expect(
+      relPaths.some((p) => p.includes("nested") || p.includes("sub")),
+    ).toBe(true);
+    expect(
+      entries.every(
+        (e) =>
+          e.fileName === basename(e.relativePath) ||
+          e.fileName === e.relativePath.split("/").pop(),
+      ),
+    ).toBe(true);
   });
 
   test("recursive=false only finds top-level .md files", async () => {
-    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: false }, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      {
+        ...DEFAULT_CONFIG,
+        docsPath: tmpDir,
+        include: ["**/*.md"],
+        exclude: [],
+        recursive: false,
+      },
+      undefined,
+      silentNotifier,
+    );
     const entries = reg.getEntries();
     expect(entries.length).toBe(1);
     expect(entries[0].fileName).toBe("root.md");
@@ -226,7 +260,18 @@ describe("DocRegistry recursive scanning", () => {
   });
 
   test("entries have correct relativePath", async () => {
-    const reg = await DocRegistry.create(tmpDir, { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: true }, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      {
+        ...DEFAULT_CONFIG,
+        docsPath: tmpDir,
+        include: ["**/*.md"],
+        exclude: [],
+        recursive: true,
+      },
+      undefined,
+      silentNotifier,
+    );
     const nested = reg.getEntries().find((e) => e.title === "Nested");
     expect(nested).toBeDefined();
     expect(nested!.relativePath).toContain("nested.md");
@@ -236,7 +281,13 @@ describe("DocRegistry recursive scanning", () => {
 
 describe("DocRegistry mutation methods", () => {
   const tmpDir = join(process.cwd(), ".test-docs-mutation");
-  const testConfig: DocInjectorConfig = { ...DEFAULT_CONFIG, docsPath: tmpDir, include: ["**/*.md"], exclude: [], recursive: false };
+  const testConfig: DocInjectorConfig = {
+    ...DEFAULT_CONFIG,
+    docsPath: tmpDir,
+    include: ["**/*.md"],
+    exclude: [],
+    recursive: false,
+  };
 
   beforeEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
@@ -256,7 +307,12 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("markInjected marks only specified entries", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      undefined,
+      silentNotifier,
+    );
     const entries = reg.getEntries();
     expect(entries.length).toBe(2);
 
@@ -269,7 +325,12 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("markAllNotInjected resets all entries", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      undefined,
+      silentNotifier,
+    );
     const entries = reg.getEntries();
     reg.markInjected(entries.map((e) => e.filePath));
     expect(reg.getEntries().every((e) => e.injected)).toBe(true);
@@ -280,7 +341,12 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("reset is alias for markAllNotInjected", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      undefined,
+      silentNotifier,
+    );
     reg.markInjected(reg.getEntries().map((e) => e.filePath));
     expect(reg.getEntries().every((e) => e.injected)).toBe(true);
 
@@ -289,19 +355,34 @@ describe("DocRegistry mutation methods", () => {
   });
 
   test("markInjected with empty array does nothing", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      undefined,
+      silentNotifier,
+    );
     reg.markInjected([]);
     expect(reg.getEntries().every((e) => !e.injected)).toBe(true);
   });
 
   test("markInjected with nonexistent path does nothing", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      undefined,
+      silentNotifier,
+    );
     reg.markInjected(["/nonexistent/path.md"]);
     expect(reg.getEntries().every((e) => !e.injected)).toBe(true);
   });
 
   test("getNonInjectedEntries respects markInjected", async () => {
-    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      undefined,
+      silentNotifier,
+    );
     const entries = reg.getEntries();
     reg.markInjected([entries[0].filePath]);
 
@@ -345,12 +426,22 @@ describe("DocRegistry keyword-source priority", () => {
     const cache = {
       version: 1 as const,
       files: {
-        "with-fm.md": { mtimeMs: mtimeOf("with-fm.md"), keywords: ["from-cache"] },
+        "with-fm.md": {
+          mtimeMs: mtimeOf("with-fm.md"),
+          keywords: ["from-cache"],
+        },
       },
     };
 
-    const reg = await DocRegistry.create(tmpDir, testConfig, cache, silentNotifier);
-    const entry = reg.getEntries().find((e) => e.relativePath === "with-fm.md")!;
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      cache,
+      silentNotifier,
+    );
+    const entry = reg
+      .getEntries()
+      .find((e) => e.relativePath === "with-fm.md")!;
     expect(entry).toBeDefined();
     expect(entry.keywords).toEqual(["from-frontmatter"]);
     expect(entry.keywordSource).toBe("frontmatter");
@@ -362,8 +453,15 @@ describe("DocRegistry keyword-source priority", () => {
       "---\ntitle: NoCache\nkeywords: [explicit]\n---\nBody.\n",
     );
 
-    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
-    const entry = reg.getEntries().find((e) => e.relativePath === "no-cache.md")!;
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      undefined,
+      silentNotifier,
+    );
+    const entry = reg
+      .getEntries()
+      .find((e) => e.relativePath === "no-cache.md")!;
     expect(entry.keywords).toEqual(["explicit"]);
     expect(entry.keywordSource).toBe("frontmatter");
   });
@@ -377,11 +475,19 @@ describe("DocRegistry keyword-source priority", () => {
     const cache = {
       version: 1 as const,
       files: {
-        "no-fm.md": { mtimeMs: mtimeOf("no-fm.md"), keywords: ["cached", "keywords"] },
+        "no-fm.md": {
+          mtimeMs: mtimeOf("no-fm.md"),
+          keywords: ["cached", "keywords"],
+        },
       },
     };
 
-    const reg = await DocRegistry.create(tmpDir, testConfig, cache, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      cache,
+      silentNotifier,
+    );
     const entry = reg.getEntries().find((e) => e.relativePath === "no-fm.md")!;
     expect(entry.keywords).toEqual(["cached", "keywords"]);
     expect(entry.keywordSource).toBe("cache");
@@ -393,7 +499,12 @@ describe("DocRegistry keyword-source priority", () => {
       "# Test Heading\n\nbody testing content.\n",
     );
 
-    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      undefined,
+      silentNotifier,
+    );
     const entry = reg.getEntries().find((e) => e.relativePath === "fresh.md")!;
     expect(entry.keywordSource).toBe("heuristic");
     // Heuristic should pick up the heading word "Test" and the body word "testing".
@@ -405,19 +516,24 @@ describe("DocRegistry keyword-source priority", () => {
   });
 
   test("priority 3: cache mtime mismatch falls through to heuristic (cache is stale)", async () => {
-    writeFileSync(
-      join(tmpDir, "stale.md"),
-      "# Heading\n\nbody.\n",
-    );
+    writeFileSync(join(tmpDir, "stale.md"), "# Heading\n\nbody.\n");
     // Cache has an OLD mtime — must not match.
     const cache = {
       version: 1 as const,
       files: {
-        "stale.md": { mtimeMs: mtimeOf("stale.md") - 10_000, keywords: ["old-cached"] },
+        "stale.md": {
+          mtimeMs: mtimeOf("stale.md") - 10_000,
+          keywords: ["old-cached"],
+        },
       },
     };
 
-    const reg = await DocRegistry.create(tmpDir, testConfig, cache, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      cache,
+      silentNotifier,
+    );
     const entry = reg.getEntries().find((e) => e.relativePath === "stale.md")!;
     expect(entry.keywordSource).toBe("heuristic");
     // Stale cache keywords must NOT leak through.
@@ -425,10 +541,18 @@ describe("DocRegistry keyword-source priority", () => {
   });
 
   test("priority 4: skip when no frontmatter, no cache, autoKeywords=false", async () => {
-    const noAutoConfig: DocInjectorConfig = { ...testConfig, autoKeywords: false };
+    const noAutoConfig: DocInjectorConfig = {
+      ...testConfig,
+      autoKeywords: false,
+    };
     writeFileSync(join(tmpDir, "skip-me.md"), "# No FM\n\nbody.\n");
 
-    const reg = await DocRegistry.create(tmpDir, noAutoConfig, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      noAutoConfig,
+      undefined,
+      silentNotifier,
+    );
     const entry = reg.getEntries().find((e) => e.relativePath === "skip-me.md");
     expect(entry).toBeUndefined();
   });
@@ -439,11 +563,16 @@ describe("DocRegistry keyword-source priority", () => {
       "---\ntitle: FM\nkeywords: [k1, k2]\n---\nbody.\n",
     );
 
-    const reg = await DocRegistry.create(tmpDir, testConfig, undefined, silentNotifier);
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      undefined,
+      silentNotifier,
+    );
     expect(reg.getDirtyCache()).toEqual({});
   });
 
-  test("priority 2 (LLM): sentinel mtime in cache surfaces keywordSource: \"llm\"", async () => {
+  test('priority 2 (LLM): sentinel mtime in cache surfaces keywordSource: "llm"', async () => {
     // File without frontmatter, but cache has a sentinel mtime (LLM-written).
     writeFileSync(
       join(tmpDir, "llm-cache.md"),
@@ -459,8 +588,15 @@ describe("DocRegistry keyword-source priority", () => {
       },
     };
 
-    const reg = await DocRegistry.create(tmpDir, testConfig, cache, silentNotifier);
-    const entry = reg.getEntries().find((e) => e.relativePath === "llm-cache.md")!;
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      cache,
+      silentNotifier,
+    );
+    const entry = reg
+      .getEntries()
+      .find((e) => e.relativePath === "llm-cache.md")!;
     expect(entry).toBeDefined();
     expect(entry.keywordSource).toBe("llm");
     expect(entry.keywords).toEqual(["llm-generated", "keyword"]);
@@ -484,8 +620,15 @@ describe("DocRegistry keyword-source priority", () => {
       },
     };
 
-    const reg = await DocRegistry.create(tmpDir, testConfig, cache, silentNotifier);
-    const entry = reg.getEntries().find((e) => e.relativePath === "fm-beats-llm.md")!;
+    const reg = await DocRegistry.create(
+      tmpDir,
+      testConfig,
+      cache,
+      silentNotifier,
+    );
+    const entry = reg
+      .getEntries()
+      .find((e) => e.relativePath === "fm-beats-llm.md")!;
     expect(entry).toBeDefined();
     expect(entry.keywordSource).toBe("frontmatter");
     expect(entry.keywords).toEqual(["from-frontmatter"]);
@@ -513,11 +656,23 @@ describe("DocRegistry missing-folder behavior", () => {
     // Bug: rebuild() was called twice at startup (session_start + resources_discover),
     // causing the same "Docs folder not found" warning to fire twice. The
     // warnedMissingDocs flag now deduplicates within a registry's lifetime.
-    const notifier = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), setContext: vi.fn() };
+    const notifier = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      setContext: vi.fn(),
+    };
 
-    const reg = await DocRegistry.create(missingDir, testConfig, undefined, notifier);
+    const reg = await DocRegistry.create(
+      missingDir,
+      testConfig,
+      undefined,
+      notifier,
+    );
     expect(notifier.warn).toHaveBeenCalledTimes(1);
-    expect(notifier.warn).toHaveBeenCalledWith(expect.stringContaining("Docs folder not found"));
+    expect(notifier.warn).toHaveBeenCalledWith(
+      expect.stringContaining("Docs folder not found"),
+    );
 
     // A second rebuild (simulating resources_discover firing) must NOT re-warn.
     await reg.rebuild();
@@ -529,8 +684,18 @@ describe("DocRegistry missing-folder behavior", () => {
   });
 
   test("rebuild clears entries to empty when folder is missing", async () => {
-    const notifier = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), setContext: vi.fn() };
-    const reg = await DocRegistry.create(missingDir, testConfig, undefined, notifier);
+    const notifier = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      setContext: vi.fn(),
+    };
+    const reg = await DocRegistry.create(
+      missingDir,
+      testConfig,
+      undefined,
+      notifier,
+    );
     expect(reg.getEntries()).toEqual([]);
   });
 
@@ -541,8 +706,18 @@ describe("DocRegistry missing-folder behavior", () => {
       "---\ntitle: A\nkeywords: [a]\n---\nbody.\n",
     );
 
-    const notifier = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), setContext: vi.fn() };
-    const reg = await DocRegistry.create(missingDir, testConfig, undefined, notifier);
+    const notifier = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      setContext: vi.fn(),
+    };
+    const reg = await DocRegistry.create(
+      missingDir,
+      testConfig,
+      undefined,
+      notifier,
+    );
     expect(notifier.warn).not.toHaveBeenCalled();
     expect(reg.getEntries().length).toBe(1);
   });
@@ -553,13 +728,23 @@ describe("DocRegistry missing-folder behavior", () => {
     const filePath = join(missingDir, "not-a-dir.md");
     writeFileSync(filePath, "# not a directory\n");
 
-    const notifier = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), setContext: vi.fn() };
+    const notifier = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      setContext: vi.fn(),
+    };
     // Point docsPath at the file (not the dir).
-    const reg = await DocRegistry.create(filePath, testConfig, undefined, notifier);
+    const reg = await DocRegistry.create(
+      filePath,
+      testConfig,
+      undefined,
+      notifier,
+    );
     expect(notifier.warn).toHaveBeenCalledTimes(1);
-    expect(notifier.warn).toHaveBeenCalledWith(expect.stringContaining("Docs folder not found"));
+    expect(notifier.warn).toHaveBeenCalledWith(
+      expect.stringContaining("Docs folder not found"),
+    );
     expect(reg.getEntries()).toEqual([]);
   });
 });
-
-

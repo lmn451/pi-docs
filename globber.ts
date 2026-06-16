@@ -23,14 +23,10 @@ export function createGlobFilter(
   exclude: string[],
 ): GlobFilter {
   const includeMatcher =
-    include.length > 0
-      ? picomatch(include, { dot: true })
-      : null;
+    include.length > 0 ? picomatch(include, { dot: true }) : null;
 
   const excludeMatcher =
-    exclude.length > 0
-      ? picomatch(exclude, { dot: true })
-      : null;
+    exclude.length > 0 ? picomatch(exclude, { dot: true }) : null;
 
   return {
     match(relativePath: string): boolean {

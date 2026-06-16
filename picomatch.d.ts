@@ -5,7 +5,10 @@ declare module "picomatch" {
 
   type Matcher = (input: string) => boolean;
 
-  function picomatch(patterns: string | string[], options?: PicomatchOptions): Matcher;
+  function picomatch(
+    patterns: string | string[],
+    options?: PicomatchOptions,
+  ): Matcher;
 
   export default picomatch;
 }

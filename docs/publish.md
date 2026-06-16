@@ -27,6 +27,7 @@ No `NPM_TOKEN` secret, no token rotation, nothing to leak.
 ## Versioning
 
 We follow [Semantic Versioning](https://semver.org/):
+
 - **MAJOR** — incompatible API changes
 - **MINOR** — backwards-compatible functionality additions
 - **PATCH** — backwards-compatible bug fixes
@@ -54,6 +55,7 @@ git push origin master --follow-tags
 ## CI/CD
 
 The `Publish` workflow triggers on `v*` tags and:
+
 - Runs `npm ci`
 - Verifies tag matches `package.json` version
 - Runs `npm test`
@@ -80,8 +82,8 @@ After that, configure the trusted publisher and all future releases go through C
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Workflow didn't run | Verify tag exists: `git ls-remote origin refs/tags/vX.Y.Z` |
-| 404 on publish | Verify trusted publisher config on npmjs.com matches exactly |
-| Version already published | Bump to a new version |
+| Issue                     | Solution                                                     |
+| ------------------------- | ------------------------------------------------------------ |
+| Workflow didn't run       | Verify tag exists: `git ls-remote origin refs/tags/vX.Y.Z`   |
+| 404 on publish            | Verify trusted publisher config on npmjs.com matches exactly |
+| Version already published | Bump to a new version                                        |

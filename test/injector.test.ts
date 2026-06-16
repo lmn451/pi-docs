@@ -2,7 +2,11 @@ import { buildInjectionContent, notifyInjection } from "../injector";
 import type { DocEntry } from "../types";
 import { describe, expect, test } from "vitest";
 
-const makeEntry = (name: string, keywords: string[], content: string): DocEntry => ({
+const makeEntry = (
+  name: string,
+  keywords: string[],
+  content: string,
+): DocEntry => ({
   filePath: `/docs/${name}`,
   fileName: name,
   relativePath: name,
@@ -15,7 +19,11 @@ const makeEntry = (name: string, keywords: string[], content: string): DocEntry 
 
 describe("buildInjectionContent", () => {
   test("formats a single doc", () => {
-    const entry = makeEntry("test.md", ["test", "testing"], "# Test Guide\nContent here.");
+    const entry = makeEntry(
+      "test.md",
+      ["test", "testing"],
+      "# Test Guide\nContent here.",
+    );
     const map = new Map<string, string[]>();
     map.set(entry.filePath, ["test", "testing"]);
 
@@ -66,7 +74,9 @@ describe("notifyInjection", () => {
   test("emits one notification per doc", () => {
     const notifications: string[] = [];
     const mockUi = {
-      notify: (msg: string) => { notifications.push(msg); },
+      notify: (msg: string) => {
+        notifications.push(msg);
+      },
     };
 
     const entry = makeEntry("test.md", ["test", "testing"], "# Test");
@@ -81,7 +91,11 @@ describe("notifyInjection", () => {
 
   test("emits multiple notifications for multiple docs", () => {
     const notifications: string[] = [];
-    const mockUi = { notify: (msg: string) => { notifications.push(msg); } };
+    const mockUi = {
+      notify: (msg: string) => {
+        notifications.push(msg);
+      },
+    };
 
     const e1 = makeEntry("test.md", ["test"], "# Test");
     const e2 = makeEntry("workflow.md", ["workflow"], "# Workflow");

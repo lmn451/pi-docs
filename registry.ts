@@ -8,7 +8,13 @@
 import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
-import { LLM_CACHE_SENTINEL, type CacheEntry, type DocEntry, type DocInjectorConfig, type KeywordCache } from "./types";
+import {
+  LLM_CACHE_SENTINEL,
+  type CacheEntry,
+  type DocEntry,
+  type DocInjectorConfig,
+  type KeywordCache,
+} from "./types";
 import type { Notifier } from "./notifier";
 import { createGlobFilter } from "./globber";
 import { generateKeywords } from "./keyword-gen";
@@ -17,7 +23,9 @@ import { generateKeywords } from "./keyword-gen";
  * Shared parser for frontmatter block content (title + keywords).
  * Extracts title and keywords from YAML-like content between delimiters.
  */
-function parseFrontmatterBlock(block: string): { title: string; keywords: string[] } | null {
+function parseFrontmatterBlock(
+  block: string,
+): { title: string; keywords: string[] } | null {
   // Extract title
   const titleMatch = block.match(/^title:\s*["']?([^"'\n]+)["']?$/m);
   const title = titleMatch ? titleMatch[1].trim() : "";
@@ -172,10 +180,10 @@ export function parseFrontmatter(
   content: string,
 ): { title: string; keywords: string[]; body: string } | null {
   return (
-    parseYamlFrontmatter(content)
-    ?? parseCStyleFrontmatter(content)
-    ?? parseHTMLFrontmatter(content)
-    ?? parseSlashSlashFrontmatter(content)
+    parseYamlFrontmatter(content) ??
+    parseCStyleFrontmatter(content) ??
+    parseHTMLFrontmatter(content) ??
+    parseSlashSlashFrontmatter(content)
   );
 }
 
@@ -226,42 +234,42 @@ class PromisePool {
  * Document Registry class. Scans a docs folder and maintains an index of DocEntry.
  */
 export class DocRegistry {
-    private entries: DocEntry[] = [];
-    private docsPath: string;
-    private config: DocInjectorConfig;
-    private cache: KeywordCache | null = null;
-    private dirtyCache: KeywordCache = { version: 1, files: {} };
-    private notifier: Notifier;
-    // Per-registry flag: warn about a missing docs folder at most once.
-    // rebuild() is called twice at startup (once from session_start, once
-    // from resources_discover); without this flag the user sees the
-    // same warning twice. Not reset across rebuilds — a missing folder
-    // is a persistent condition, not a transient one.
-    private warnedMissingDocs = false;
+  private entries: DocEntry[] = [];
+  private docsPath: string;
+  private config: DocInjectorConfig;
+  private cache: KeywordCache | null = null;
+  private dirtyCache: KeywordCache = { version: 1, files: {} };
+  private notifier: Notifier;
+  // Per-registry flag: warn about a missing docs folder at most once.
+  // rebuild() is called twice at startup (once from session_start, once
+  // from resources_discover); without this flag the user sees the
+  // same warning twice. Not reset across rebuilds — a missing folder
+  // is a persistent condition, not a transient one.
+  private warnedMissingDocs = false;
 
-    private constructor(
-        docsPath: string,
-        config: DocInjectorConfig,
-        cache: KeywordCache | undefined,
-        notifier: Notifier,
-    ) {
-        this.docsPath = docsPath;
-        this.config = config;
-        this.cache = cache ?? null;
-        this.notifier = notifier;
-    }
+  private constructor(
+    docsPath: string,
+    config: DocInjectorConfig,
+    cache: KeywordCache | undefined,
+    notifier: Notifier,
+  ) {
+    this.docsPath = docsPath;
+    this.config = config;
+    this.cache = cache ?? null;
+    this.notifier = notifier;
+  }
 
-    /** Create a registry by scanning the docs folder. */
-    static async create(
-        docsPath: string,
-        config: DocInjectorConfig,
-        cache: KeywordCache | undefined,
-        notifier: Notifier,
-    ): Promise<DocRegistry> {
-        const registry = new DocRegistry(docsPath, config, cache, notifier);
-        await registry.rebuild();
-        return registry;
-    }
+  /** Create a registry by scanning the docs folder. */
+  static async create(
+    docsPath: string,
+    config: DocInjectorConfig,
+    cache: KeywordCache | undefined,
+    notifier: Notifier,
+  ): Promise<DocRegistry> {
+    const registry = new DocRegistry(docsPath, config, cache, notifier);
+    await registry.rebuild();
+    return registry;
+  }
 
   /** Re-scan the docs folder and rebuild the index. */
   async rebuild(): Promise<void> {
@@ -297,9 +305,11 @@ export class DocRegistry {
       // Process files concurrently with PromisePool
       const pool = new PromisePool(this.config.maxConcurrent);
 
-      const tasks = scanResults.map((sr) => async (): Promise<DocEntry | null> => {
-        return this.processFile(sr, preserved);
-      });
+      const tasks = scanResults.map(
+        (sr) => async (): Promise<DocEntry | null> => {
+          return this.processFile(sr, preserved);
+        },
+      );
 
       const results = await pool.all(tasks);
       this.entries = results.filter((e): e is DocEntry => e !== null);
@@ -427,7 +437,9 @@ export class DocRegistry {
     } catch (err) {
       // Only warn for unexpected errors, not ENOENT (file deleted/moved after scan)
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        this.notifier.warn(`[doc-injector] Error reading ${relativePath}: ${err instanceof Error ? err.message : String(err)}`);
+        this.notifier.warn(
+          `[doc-injector] Error reading ${relativePath}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       return null;
     }
@@ -450,7 +462,10 @@ export class DocRegistry {
   private async scanRecursive(dir: string): Promise<ScanResult[]> {
     const filter = createGlobFilter(this.config.include, this.config.exclude);
     const results: ScanResult[] = [];
-    const dirents = await readdir(dir, { recursive: true, withFileTypes: true }) as Dirent[];
+    const dirents = (await readdir(dir, {
+      recursive: true,
+      withFileTypes: true,
+    })) as Dirent[];
 
     for (const dirent of dirents) {
       if (!dirent.isFile()) continue;
@@ -460,9 +475,11 @@ export class DocRegistry {
       // Resolve relative path cross-runtime
       let relPath: string;
       if (dirent.name === fileName) {
-        const parentPath = (dirent as Dirent & { parentPath?: string; path?: string }).parentPath
-          ?? (dirent as Dirent & { path?: string }).path
-          ?? "";
+        const parentPath =
+          (dirent as Dirent & { parentPath?: string; path?: string })
+            .parentPath ??
+          (dirent as Dirent & { path?: string }).path ??
+          "";
         relPath = parentPath
           ? relative(dir, join(parentPath, dirent.name))
           : dirent.name;
@@ -499,7 +516,6 @@ export class DocRegistry {
   updateCache(cache: KeywordCache): void {
     this.cache = cache;
   }
-
 
   /**
    * Get all registered entries.

@@ -1,6 +1,19 @@
 ---
 title: "Development Workflow"
-keywords: [workflow, development, coding, git, branch, commit, pull request, review, ci, cd, pipeline]
+keywords:
+  [
+    workflow,
+    development,
+    coding,
+    git,
+    branch,
+    commit,
+    pull request,
+    review,
+    ci,
+    cd,
+    pipeline,
+  ]
 ---
 
 # Development Workflow
@@ -28,6 +41,7 @@ This document describes the standard development workflow for this project.
 ## Commit Messages
 
 Follow Conventional Commits:
+
 ```
 type(scope): description
 
@@ -46,6 +60,7 @@ docs(readme): update installation steps
 ## CI/CD Pipeline
 
 The pipeline runs on every push:
+
 1. Lint check
 2. Type check
 3. Unit tests
