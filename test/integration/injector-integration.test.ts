@@ -10,6 +10,7 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 import docInjectorExtension from "../../index";
+import { KeywordMatcher } from "../../matcher";
 
 // ---- Simple mock factory ----
 function createMockFn() {
@@ -1349,5 +1350,96 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
       (rAfter as { message?: { content: string } } | undefined)?.message
         ?.content ?? "";
     expect(c).toContain("Testing Guide");
+  });
+});
+
+describe("Doc Injector Extension - Streaming Matcher Caching", () => {
+  // The streaming path (message_update) previously called buildMatcher() on
+  // every chunk, recompiling all keyword regexes each time even though the
+  // candidate set and patterns don't change within a single assistant message.
+  // The matcher is now built lazily once per message and reused across chunks.
+  // We verify this by spying on KeywordMatcher.prototype.match and asserting
+  // that multiple chunks within one message hit the same matcher instance,
+  // while a new message (after message_end) builds a fresh one.
+  beforeEach(() => {
+    setupDocs();
+    setupConfig();
+  });
+  afterEach(() => {
+    cleanupDocs();
+    cleanupConfig();
+    vi.restoreAllMocks();
+  });
+
+  test("reuses one KeywordMatcher instance across chunks within a message", async () => {
+    const matchSpy = vi.spyOn(KeywordMatcher.prototype, "match");
+    const instances = new Set<object>();
+
+    const api = createMockAPI();
+    await docInjectorExtension(
+      api as unknown as Parameters<typeof docInjectorExtension>[0],
+    );
+    await triggerSessionStart(api);
+    api._setIdle(false);
+
+    // Three streaming chunks for the same assistant message. No keyword
+    // matches, so no abort fires and we can observe matcher reuse cleanly.
+    for (let i = 0; i < 3; i++) {
+      await api.emit(
+        "message_update",
+        { message: { role: "assistant", content: `chunk ${i} no match here` } },
+        api._sessionCtx,
+      );
+    }
+
+    for (const call of matchSpy.mock.instances) {
+      instances.add(call as object);
+    }
+    expect(matchSpy.mock.calls.length).toBe(3);
+    expect(instances.size).toBe(1); // one matcher instance reused across 3 chunks
+  });
+
+  test("builds a new KeywordMatcher after message_end (invalidates cache)", async () => {
+    const matchSpy = vi.spyOn(KeywordMatcher.prototype, "match");
+    const instances = new Set<object>();
+
+    const api = createMockAPI();
+    await docInjectorExtension(
+      api as unknown as Parameters<typeof docInjectorExtension>[0],
+    );
+    await triggerSessionStart(api);
+    api._setIdle(false);
+
+    // Message 1: two chunks
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "alpha chunk one" } },
+      api._sessionCtx,
+    );
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "alpha chunk two" } },
+      api._sessionCtx,
+    );
+    // End message 1
+    await api.emit(
+      "message_end",
+      { message: { role: "assistant", content: "" } },
+      api._sessionCtx,
+    );
+
+    // Message 2: one chunk (different content but irrelevant — we just need
+    // a second match call to confirm the matcher instance changed)
+    await api.emit(
+      "message_update",
+      { message: { role: "assistant", content: "beta chunk one" } },
+      api._sessionCtx,
+    );
+
+    for (const call of matchSpy.mock.instances) {
+      instances.add(call as object);
+    }
+    expect(matchSpy.mock.calls.length).toBe(3);
+    expect(instances.size).toBe(2); // message 1's matcher + message 2's new matcher
   });
 });

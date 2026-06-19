@@ -111,6 +111,13 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   let llmTotalFiles = 0;
   let cache: KeywordCache = { version: 1, files: {} };
 
+  // Per-message streaming matcher cache. The streaming path fires on every
+  // chunk, and the candidate set (non-injected entries) + keyword regexes do not
+  // change within a single assistant message. Build once lazily on the first
+  // chunk of a message and reuse until message_end resets it. Invalidated on
+  // rebuild so a resources_discover mid-message doesn't keep a stale matcher.
+  let streamMatcher: KeywordMatcher | null = null;
+
   // ---- Helpers ----
   const getRegistry = () => registry;
   const getEnabled = () => enabled;
@@ -151,6 +158,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     if (Object.keys(dirty).length > 0) {
       await safeSaveCache(cwd, dirty);
     }
+    // Registry was rebuilt — drop any cached streaming matcher so the next
+    // message_update rebuilds against the new candidate set.
+    streamMatcher = null;
   };
 
   const buildMatcher = (
@@ -270,6 +280,10 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       await safeSaveCache(effectiveCwd, dirty);
     }
 
+    // Registry was rebuilt — drop any cached streaming matcher so the next
+    // message_update rebuilds against the new candidate set.
+    streamMatcher = null;
+
     const count = registry.getEntries().length;
     return count;
   };
@@ -327,14 +341,19 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
 
     // Discovery matcher: threshold 1 finds any keyword present in the rolling
     // tail window. The real matchThreshold is applied below against the
-    // keywords accumulated across all chunks of this message.
-    const matcher = buildMatcher({
-      matchThreshold: 1,
-      windowSize: config.streamWindowSize,
-    });
-    if (!matcher) return;
+    // keywords accumulated across all chunks of this message. The matcher is
+    // built lazily once per message and reused across chunks to avoid
+    // recompiling keyword regexes on every streaming event; invalidated at
+    // message_end and on registry rebuild.
+    if (!streamMatcher) {
+      streamMatcher = buildMatcher({
+        matchThreshold: 1,
+        windowSize: config.streamWindowSize,
+      });
+    }
+    if (!streamMatcher) return;
 
-    const results = matcher.match(textBuffer);
+    const results = streamMatcher.match(textBuffer);
 
     let hasNew = false;
     for (const result of results) {
@@ -366,6 +385,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   pi.on("message_end", async (event, _ctx) => {
     textBuffer = "";
     streamHits.clear();
+    streamMatcher = null;
     if (!enabled || !registry) return;
     const msg = event.message;
     if (msg.role !== "assistant") return;
