@@ -196,6 +196,13 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
         keywords: string[];
       }>;
       const { stat } = await import("node:fs/promises");
+      // Collect dirty entries locally instead of mutating the shared in-memory
+      // `cache` and writing it directly. The direct write path would clobber
+      // any heuristic dirty entries another path (e.g. initRegistry,
+      // reloadRegistry) just persisted to disk, because the in-memory cache is
+      // not refreshed after those writes. safeSaveCache re-reads from disk and
+      // merges before saving, matching every other write path.
+      const dirtyEntries: Record<string, CacheEntry> = {};
       let saved = 0;
       for (const item of generated) {
         const absPath = resolve(ctx.cwd, config.docsPath, item.path);
@@ -203,7 +210,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
         if (!fileStat) {
           continue;
         }
-        cache.files[item.path] = {
+        dirtyEntries[item.path] = {
           // Use the sentinel — never the real mtime — so the next rebuild
           // surfaces this entry as keywordSource: "llm" instead of "cache".
           mtimeMs: LLM_CACHE_SENTINEL,
@@ -211,7 +218,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
         };
         saved++;
       }
-      await saveCache(ctx.cwd, cache);
+      if (saved > 0) {
+        await safeSaveCache(ctx.cwd, dirtyEntries);
+      }
       llmBatchesCompleted++;
       llmTotalFiles += saved;
       return {
