@@ -5,7 +5,7 @@
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -790,6 +790,44 @@ Added after initial load.
     // Should report 1 saved (not 2)
     const text = result.content[0].text;
     expect(text).toContain("1"); // Only 1 file saved, not 2
+  });
+
+  test("LLM tool save preserves concurrent heuristic dirty cache entries", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(
+      api as unknown as Parameters<typeof docInjectorExtension>[0],
+    );
+    await triggerSessionStart(api);
+
+    // The session_start + resources_discover rebuild path writes heuristic
+    // keywords for no-frontmatter.md to the on-disk cache (via safeSaveCache).
+    // Simulate that disk state so the LLM tool write is the next thing to hit it.
+    const cachePath = resolve(
+      api._sessionCtx.cwd,
+      ".pi/doc-injector-cache.json",
+    );
+    const before = JSON.parse(readFileSync(cachePath, "utf-8"));
+    expect(before.files["no-frontmatter.md"]).toBeDefined();
+
+    const tool = api._tools.get("_doc_injector_keywords");
+    expect(tool).toBeDefined();
+
+    await tool!.execute(
+      "tool-call-id",
+      { keywords: [{ path: "testing-guide.md", keywords: ["from-llm"] }] },
+      undefined,
+      undefined,
+      api._sessionCtx,
+    );
+
+    const after = JSON.parse(readFileSync(cachePath, "utf-8"));
+    // Heuristic entry must survive the LLM tool's write.
+    expect(after.files["no-frontmatter.md"]).toBeDefined();
+    expect(after.files["no-frontmatter.md"].keywords.length).toBeGreaterThan(0);
+    // LLM entry must be present with sentinel mtime.
+    expect(after.files["testing-guide.md"]).toBeDefined();
+    expect(after.files["testing-guide.md"].mtimeMs).toBe(-1);
+    expect(after.files["testing-guide.md"].keywords).toEqual(["from-llm"]);
   });
 });
 
