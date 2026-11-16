@@ -21,18 +21,17 @@ export function extractText(content: unknown): string {
   for (const block of content) {
     if (!block || typeof block !== "object") continue;
     const b = block as Record<string, unknown>;
-    if (
-      (b.type === "text" || b.type === "thinking") &&
-      typeof b.text === "string"
-    ) {
+    if (b.type === "text" && typeof b.text === "string") {
       parts.push(b.text);
+    } else if (b.type === "thinking" && typeof b.thinking === "string") {
+      parts.push(b.thinking);
     }
   }
   return parts.join("\n");
 }
 
 /** Characters treated as part of a "word" for boundary detection. */
-const WORD_CHAR = /[A-Za-z0-9_]/;
+const WORD_CHAR = /[\p{L}\p{N}_]/u;
 
 /** Escape a string so it can be embedded literally in a RegExp. */
 function escapeRegExp(s: string): string {
@@ -50,11 +49,12 @@ function escapeRegExp(s: string): string {
  */
 function buildKeywordRegex(keyword: string, caseSensitive: boolean): RegExp {
   const escaped = escapeRegExp(keyword);
-  const left = WORD_CHAR.test(keyword[0]) ? "(?<![A-Za-z0-9_])" : "";
-  const right = WORD_CHAR.test(keyword[keyword.length - 1])
-    ? "(?![A-Za-z0-9_])"
+  const characters = Array.from(keyword);
+  const left = WORD_CHAR.test(characters[0]) ? "(?<![\\p{L}\\p{N}_])" : "";
+  const right = WORD_CHAR.test(characters[characters.length - 1])
+    ? "(?![\\p{L}\\p{N}_])"
     : "";
-  return new RegExp(`${left}${escaped}${right}`, caseSensitive ? "" : "i");
+  return new RegExp(`${left}${escaped}${right}`, caseSensitive ? "gu" : "giu");
 }
 
 interface CompiledEntry {
@@ -74,16 +74,24 @@ export class KeywordMatcher {
    */
   constructor(entries: DocEntry[], options?: Partial<MatcherOptions>) {
     this.options = { ...DEFAULT_MATCHER_OPTIONS, ...options };
-    this.compiled = entries.map((entry) => ({
-      entry,
-      patterns: (entry.keywords ?? [])
-        // Skip empty/whitespace keywords — they'd match everything.
-        .filter((kw) => kw && kw.trim().length > 0)
+    this.compiled = entries.map((entry) => {
+      const seen = new Set<string>();
+      const patterns = (entry.keywords ?? [])
+        .filter(
+          (kw): kw is string => typeof kw === "string" && kw.trim().length > 0,
+        )
+        .filter((kw) => {
+          const key = this.options.caseSensitive ? kw : kw.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
         .map((keyword) => ({
           keyword,
           regex: buildKeywordRegex(keyword, this.options.caseSensitive),
-        })),
-    }));
+        }));
+      return { entry, patterns };
+    });
   }
 
   /** Match text against keyword index. Returns matching docs with hit details. */
@@ -96,10 +104,10 @@ export class KeywordMatcher {
     // accumulate across chunks in the caller, so keywords that scroll past the
     // window aren't lost.
     const { windowSize } = this.options;
-    const scanText =
-      windowSize > 0 && text.length > windowSize
-        ? text.slice(-windowSize)
-        : text;
+    const sliced = windowSize > 0 && text.length > windowSize;
+    // Keep one preceding character so the left word boundary sees the true text.
+    const scanText = sliced ? text.slice(-windowSize - 1) : text;
+    const minStart = sliced ? 1 : 0;
 
     const results: MatchResult[] = [];
 
@@ -109,8 +117,12 @@ export class KeywordMatcher {
 
       const matchedKeywords: string[] = [];
       for (const { keyword, regex } of patterns) {
-        if (regex.test(scanText)) {
+        regex.lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = regex.exec(scanText)) !== null) {
+          if (match.index < minStart) continue;
           matchedKeywords.push(keyword);
+          break;
         }
       }
 

@@ -1,261 +1,76 @@
 # Pi Doc Injector
 
-A [Pi](https://pi.dev) extension that automatically injects relevant project documentation into the LLM context by monitoring streaming output for keyword matches. Docs are delivered as a `CustomMessage` so the system prompt stays untouched and the provider's prompt cache stays warm.
+A [Pi](https://pi.dev) extension that adds relevant project docs to the conversation as a `CustomMessage`. It does not change the system prompt.
 
-## Installation
-
-### Via npm (recommended)
+## Install
 
 ```bash
 pi install npm:pi-doc-injector
 ```
 
-### Via git
+Requires Pi 1.5.2 or newer within the 1.x series.
 
-```bash
-pi install git:github.com/lmn451/pi-doc-injector
-```
+## Simple mode (default)
 
-### Manual
+Create `docs/auth.md`. When **auth** appears as a complete word in a user message, assistant text, or assistant thinking, the extension selects that file. Matching ignores case. A user match injects the doc before the assistant responds. An assistant match injects it before the **next** agent run; it does not abort the current response or send a synthetic `continue` message.
 
-Copy this repository into your project's `.pi/extensions/doc-injector/` folder, or clone directly:
+Simple mode uses only top-level `docs/{name}.md` files. For example, `docs/auth.md` matches `auth`, but not `authentication`. It does not split filenames into words: `docs/api-auth.md` matches `api-auth`, not `auth`. Frontmatter and generated keywords are not needed. Each file is injected at most once per session, unless you run `/doc-inject reset`.
 
-```bash
-git clone https://github.com/yourname/pi-doc-injector.git .pi/extensions/doc-injector
-```
-
-## Quick Start
-
-1. Create a `docs/` folder in your project root.
-2. Add markdown files with frontmatter (`title` + `keywords`). See [Document Format](#document-format) for supported formats.
-3. Start Pi. The extension scans `docs/` on session start.
-4. When the user mentions a keyword, the matching doc is injected as a
-   `CustomMessage` into the conversation **before the assistant responds** —
-   no one-turn delay. The system prompt is never modified.
-5. If the assistant mentions a NEW keyword mid-response, generation is
-   automatically aborted and restarted with the doc injected immediately.
-
-## Document Format
-
-Documents are markdown files (`.md` or `.txt`) that the extension scans for injection.
-Each file can declare `title` and `keywords` via **frontmatter** — a metadata block at the top of the file.
-
-### Supported Frontmatter Formats
-
-The extension tries formats in this order and uses the first match it finds:
-
-**1. YAML (recommended)**
-
-```md
----
-title: "Testing Workflow"
-keywords: [test, testing, jest, vitest]
----
-
-# Testing Workflow
-```
-
-**2. C-style block comment** — useful for `.ts`/`.js` doc files:
-
-```md
-/_---
-title: "Testing Workflow"
-keywords: [test, testing, jest, vitest]
----_/
-
-# Testing Workflow
-```
-
-**3. HTML comment** — useful for HTML-generated docs:
-
-```md
-<!--
-title: "Testing Workflow"
-keywords: [test, testing, jest, vitest]
--->
-
-# Testing Workflow
-```
-
-**4. Slash-slash comment** — useful for `.js`/`.ts` sidecar docs:
-
-```md
-//---
-title: "Testing Workflow"
-keywords: [test, testing, jest, vitest]
-
-# Testing Workflow
-```
-
-### Keyword Array Syntax
-
-Both **flow** and **block** keyword array syntaxes are supported:
-
-```md
-keywords: [test, testing, jest] # flow: comma-separated in brackets
-keywords: # block: one per line
-
-- test
-- testing
-- jest
-```
-
-### Auto-Keywords Fallback
-
-If a file has **no frontmatter** and `autoKeywords` is enabled (default: `true`), the extension generates keywords heuristically from the filename and content — no metadata needed.
-
-If `autoKeywords` is `false`, files without valid frontmatter are **skipped** with a warning.
+The extension stores the injected content in a conversation message, not at the head of the context or in the system prompt. Provider cache hits still depend on the provider's cache policy.
 
 ## Configuration
 
-Create `.pi/doc-injector.json` in your project root to customize behavior:
+Optional `.pi/doc-injector.json` in your project:
 
 ```json
 {
+  "mode": "simple",
   "docsPath": "./docs",
-  "matchThreshold": 2,
-  "streamWindowSize": 500,
-  "contextThreshold": 80,
-  "recursive": true,
-  "autoKeywords": true,
-  "llmKeywords": false,
-  "llmBatchSize": 20
+  "contextThreshold": 80
 }
 ```
 
-| Option             | Default    | Description                                                                                                          |
-| ------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------- |
-| `docsPath`         | `"./docs"` | Path to docs folder (relative to project root)                                                                       |
-| `matchThreshold`   | `2`        | Minimum distinct keyword matches required to inject a doc                                                            |
-| `streamWindowSize` | `500`      | Rolling tail window (chars) scanned per streaming chunk; matches accumulate across chunks. `0` scans the full buffer |
-| `contextThreshold` | `80`       | Skip injection when context usage exceeds this % (0–100)                                                             |
-| `recursive`        | `true`     | Scan docs subdirectories recursively                                                                                 |
-| `autoKeywords`     | `true`     | Generate keywords heuristically when frontmatter is missing                                                          |
-| `llmKeywords`      | `false`    | Enable LLM-based keyword generation (see below)                                                                      |
-| `llmBatchSize`     | `20`       | Max files per LLM keyword batch                                                                                      |
+- `mode`: `"simple"` (default) or `"keywords"`.
+- `docsPath`: Folder to scan, relative to the project root.
+- `contextThreshold`: Skip injection if context usage exceeds this percentage.
+- `include`, `exclude`, `maxFileSize`, and `maxConcurrent` control scanning. Symlinked files are skipped.
 
-### Keyword Matching
+### Keyword mode (opt-in)
 
-Matching is case-insensitive and respects word boundaries by default. Once a document is injected, it won't re-match until you run `/doc-inject reset`.
+Set `"mode": "keywords"` to use frontmatter keywords, heuristic keyword generation, or optional LLM keyword generation. It also supports nested docs and `.txt` files. The existing `matchThreshold` (default: 2), `streamWindowSize` (default: 500), `recursive`, `autoKeywords`, `llmKeywords`, and `llmBatchSize` settings apply to this mode. Assistant matches still wait for the next agent run; neither mode aborts an active response.
 
-Injection is also skipped if the current context usage exceeds 80% of the token budget.
+Example doc:
+
+```md
+---
+title: Authentication
+keywords: [auth, login, sign in]
+---
+
+# Authentication
+
+Use these project rules...
+```
+
+If a file has no frontmatter keywords, keyword mode generates search terms from its filename, headings, and code symbols by default. Set `"autoKeywords": false` to disable that fallback. `/doc-keywords-gen [path]` requests LLM-generated keywords when `"llmKeywords": true`; it does not run in simple mode.
 
 ## Commands
 
-| Command              | Description                                                                                  |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| `/doc-inject on`     | Enable doc injection                                                                         |
-| `/doc-inject off`    | Disable doc injection                                                                        |
-| `/doc-inject toggle` | Toggle doc injection on/off                                                                  |
-| `/doc-inject list`   | List all registered docs and their injection status                                          |
-| `/doc-inject reset`  | Reset all injected flags (docs become re-injectable)                                         |
-| `/doc-inject status` | Show current injection status and config                                                     |
-| `/doc-reload`        | Re-scan docs folder and rebuild registry                                                     |
-| `/doc-keywords-gen`  | Generate LLM keywords for files without frontmatter (requires `llmKeywords: true` in config) |
-
-## Keyword Generation
-
-When a document has no frontmatter keywords, the extension handles it in two ways:
-
-### Heuristic (Automatic)
-
-If `autoKeywords` is `true` (default), keywords are generated automatically from:
-
-- **Filename parts**: `"api-authentication.md"` → `[api, authentication]`
-- **Markdown headings**: `"# Getting Started"` → `[getting, started]`
-- **Code symbols**: `"function foo()"` → `[foo]`
-
-All keywords are filtered through a stop-word list, lowercased, and capped at 20.
-
-### LLM Generation (Manual)
-
-For better keywords, enable LLM generation in config:
-
-```json
-{
-  "autoKeywords": true,
-  "llmKeywords": true,
-  "llmBatchSize": 20
-}
-```
-
-Then run `/doc-keywords-gen [path]` to generate keywords via LLM. Without a path argument, it processes all keyword-less files.
-
-The LLM reads each file's content and produces 3–10 relevant, searchable keywords per file. Results are saved to the cache and reused on subsequent scans.
-
-### Keyword Source Tracking
-
-The cache stores which method was used for each file's keywords:
-
-| Source        | How set                                 |
-| ------------- | --------------------------------------- |
-| `frontmatter` | Keywords declared in file frontmatter   |
-| `cache`       | Reused from previous scan (mtime match) |
-| `heuristic`   | Auto-generated from filename/content    |
-| `llm`         | Generated via `/doc-keywords-gen`       |
-
-Use `/doc-inject list` to see each file's keyword source (shown as `[source]` tag).
-
-## Injection Lifecycle
-
-The extension uses a per-session injection model:
-
-- On `session_start`, the registry scans `docs/` and indexes all valid documents.
-- Within a session, once a document is injected, it won't be re-injected automatically.
-- Use `/doc-inject reset` to manually reset all flags and allow docs to be injected again.
-- Use `/doc-inject list` to see which docs have been injected (✅) and which are pending (⬜).
-
-### Injection Timing
-
-- **User messages**: matched via the `input` event, injected before the assistant
-  responds — **same turn**, no delay.
-- **Assistant streaming**: if the assistant mentions a NEW keyword mid-response,
-  generation is aborted and restarted with the doc injected immediately.
-
-### Injection Mechanism
-
-On match, the extension returns a `message` field from `before_agent_start`
-with `customType: "doc-injector"`. Pi appends this to the session and sends
-it to the LLM as part of the conversation. The system prompt is **never**
-mutated.
-
-#### Why a CustomMessage, not the system prompt?
-
-- The system prompt is the highest-value prompt-cache slot. Each unique
-  system prompt text breaks the cache (5-min TTL by default). Appending
-  per-turn doc content there would invalidate the cache on every first
-  injection.
-- A `CustomMessage` only adds to the conversation prefix, leaving the
-  system prompt byte-identical across turns and the cache warm.
-
-#### Double-injection prevention
-
-Two independent guards make duplicate injection impossible in a session:
-
-1. **Matcher guard** — `buildMatcher()` only includes non-injected entries
-   (via `getNonInjectedEntries()`), so already-injected docs cannot be
-   re-matched.
-2. **Mark guard** — `markInjected()` runs inside `before_agent_start` before
-   the LLM call, so even if the matcher ever produced a duplicate, the
-   mark would still prevent a second send.
-
-In practice, the matcher guard is the primary defense; the mark guard is
-defense-in-depth for race conditions (e.g. if `resources_discover` rebuilds
-the registry mid-injection).
-
-The `injected` flag is per-session: it's reset on `session_start` and can
-be manually cleared with `/doc-inject reset`.
-
-For the full source-level verification, see the JSDoc block in `index.ts`.
+| Command                           | Action                                 |
+| --------------------------------- | -------------------------------------- |
+| `/doc-inject status`              | Show enabled state and document counts |
+| `/doc-inject list`                | Show documents and injection state     |
+| `/doc-inject on`, `off`, `toggle` | Control injection                      |
+| `/doc-inject reset`               | Allow documents to be injected again   |
+| `/doc-reload`                     | Re-scan the docs folder                |
+| `/doc-keywords-gen [path]`        | Generate keywords in keyword mode only |
 
 ## Development
 
 ```bash
-# Run tests
 npm test
-
-# Run tests in watch mode
-npm run test:watch
+npm run typecheck
+npm run format:check
 ```
 
 ## License

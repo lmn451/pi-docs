@@ -111,6 +111,31 @@ describe("KeywordMatcher", () => {
     ]);
   });
 
+  test("duplicate keywords do not satisfy a distinct-hit threshold", () => {
+    const matcher = new KeywordMatcher(
+      [makeEntry("auth.md", ["auth", "AUTH"])],
+      { matchThreshold: 2 },
+    );
+    expect(matcher.match("auth")).toHaveLength(0);
+  });
+
+  test("a window edge cannot turn a word suffix into a standalone hit", () => {
+    const matcher = new KeywordMatcher([makeEntry("test.md", ["test"])], {
+      matchThreshold: 1,
+      windowSize: 4,
+    });
+    expect(matcher.match("latest")).toHaveLength(0);
+    expect(matcher.match("a test")).toHaveLength(1);
+  });
+
+  test("Unicode letters are word characters", () => {
+    const matcher = new KeywordMatcher([makeEntry("cjk.md", ["身份验证"])], {
+      matchThreshold: 1,
+    });
+    expect(matcher.match("请用身份验证处理")).toHaveLength(0);
+    expect(matcher.match("请用 身份验证 处理")).toHaveLength(1);
+  });
+
   test("already-injected docs excluded", () => {
     const entry = makeEntry("test.md", ["test", "testing"]);
     entry.injected = true;
@@ -203,7 +228,7 @@ describe("extractText", () => {
   test("extracts from content array with thinking blocks", () => {
     const content = [
       { type: "text", text: "Hello " },
-      { type: "thinking", text: "Let me think..." },
+      { type: "thinking", thinking: "Let me think..." },
       { type: "text", text: "World" },
     ];
     const result = extractText(content);

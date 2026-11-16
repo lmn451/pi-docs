@@ -71,6 +71,7 @@ const setupConfig = () => {
   writeFileSync(
     resolve(__dirname, ".pi", "doc-injector.json"),
     JSON.stringify({
+      mode: "keywords",
       docsPath: "./fixtures/docs",
       matchThreshold: 1,
       contextThreshold: 90,
@@ -251,7 +252,9 @@ const triggerAssistantStream = async (
 
 const triggerAssistantStreamBlocks = async (
   api: MockExtensionAPI,
-  blocks: Array<{ type: string; text: string }>,
+  blocks: Array<
+    { type: "text"; text: string } | { type: "thinking"; thinking: string }
+  >,
 ) => {
   await api.emit(
     "message_update",
@@ -322,7 +325,7 @@ describe("Doc Injector Extension - Integration", () => {
     await triggerAssistantStreamBlocks(api, [
       {
         type: "thinking",
-        text: "The user is asking about testing their code.",
+        thinking: "The user is asking about testing their code.",
       },
       { type: "text", text: "Sure, let me help you with that." },
     ]);
@@ -372,6 +375,7 @@ describe("Doc Injector Extension - Integration", () => {
     writeFileSync(
       resolve(__dirname, ".pi", "doc-injector.json"),
       JSON.stringify({
+        mode: "keywords",
         docsPath: "./fixtures/docs",
         matchThreshold: 2,
         contextThreshold: 90,
@@ -803,17 +807,13 @@ describe("Doc Injector Extension - Auto-Abort on Stream", () => {
     cleanupConfig();
   });
 
-  test("aborts when assistant mentions a new keyword mid-stream", async () => {
+  test("queues an assistant match for the next prompt without aborting", async () => {
     const api = createMockAPI();
     await docInjectorExtension(
       api as unknown as Parameters<typeof docInjectorExtension>[0],
     );
     await triggerSessionStart(api);
-
-    // Simulate assistant streaming (not idle)
     api._setIdle(false);
-
-    // Assistant says a keyword match mid-stream
     await api.emit(
       "message_update",
       {
@@ -821,11 +821,13 @@ describe("Doc Injector Extension - Auto-Abort on Stream", () => {
       },
       api._sessionCtx,
     );
-
-    const abortCalls = (
-      api._sessionCtx.abort as unknown as { calls: unknown[][] }
-    ).calls;
-    expect(abortCalls.length).toBe(1);
+    expect(
+      (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls,
+    ).toHaveLength(0);
+    const result = await triggerAgentStart(api);
+    expect(
+      (result as { message?: { content: string } })?.message?.content,
+    ).toContain("Testing Guide");
   });
 
   test("does NOT abort on user messages (already handled by before_agent_start)", async () => {
@@ -851,69 +853,27 @@ describe("Doc Injector Extension - Auto-Abort on Stream", () => {
     expect(abortCalls.length).toBe(0);
   });
 
-  test("does NOT abort when no NEW matches (duplicate keyword in same response)", async () => {
+  test("repeated streaming updates do not send a synthetic continue message", async () => {
     const api = createMockAPI();
     await docInjectorExtension(
       api as unknown as Parameters<typeof docInjectorExtension>[0],
     );
     await triggerSessionStart(api);
-
     api._setIdle(false);
-
-    // First mention of keyword — should abort
-    await api.emit(
-      "message_update",
-      { message: { role: "assistant", content: "testing..." } },
-      api._sessionCtx,
-    );
-
-    const abortCalls1 = (
-      api._sessionCtx.abort as unknown as { calls: unknown[][] }
-    ).calls;
-    expect(abortCalls1.length).toBe(1);
-
-    // Second mention of same keyword (no abort guard active since abortingForInjection
-    // is reset in agent_end, but we haven't emitted agent_end — so guard is still true)
-    // The guard should prevent second abort
-    await api.emit(
-      "message_update",
-      { message: { role: "assistant", content: "testing again..." } },
-      api._sessionCtx,
-    );
-
-    const abortCalls2 = (
-      api._sessionCtx.abort as unknown as { calls: unknown[][] }
-    ).calls;
-    // Still only 1 abort because abortingForInjection guard is active
-    expect(abortCalls2.length).toBe(1);
-  });
-
-  test("agent_end sends follow-up message to restart after abort", async () => {
-    vi.useFakeTimers();
-    const api = createMockAPI();
-    await docInjectorExtension(
-      api as unknown as Parameters<typeof docInjectorExtension>[0],
-    );
-    await triggerSessionStart(api);
-
-    // Trigger auto-abort
-    api._setIdle(false);
-    await api.emit(
-      "message_update",
-      { message: { role: "assistant", content: "testing..." } },
-      api._sessionCtx,
-    );
-
-    // Emit agent_end — should trigger sendUserMessage (deferred via setTimeout)
+    for (const content of ["testing...", "testing again..."]) {
+      await api.emit(
+        "message_update",
+        { message: { role: "assistant", content } },
+        api._sessionCtx,
+      );
+    }
     await api.emit("agent_end", {}, api._sessionCtx);
-
-    // Run the setTimeout(0) callback
-    vi.runAllTimers();
-
-    const sendCalls = (api.sendUserMessage as unknown as { calls: unknown[][] })
-      .calls;
-    expect(sendCalls.length).toBe(1);
-    expect(sendCalls[0][0]).toBe("continue");
+    expect(
+      (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls,
+    ).toHaveLength(0);
+    expect(
+      (api.sendUserMessage as unknown as { calls: unknown[][] }).calls,
+    ).toHaveLength(0);
   });
 
   test("does NOT send follow-up in agent_end without prior abort", async () => {
@@ -949,6 +909,7 @@ describe("Doc Injector Extension - Multi-Chunk Stream Accumulation", () => {
     writeFileSync(
       resolve(__dirname, ".pi", "doc-injector.json"),
       JSON.stringify({
+        mode: "keywords",
         docsPath: "./fixtures/docs",
         matchThreshold: 2,
         // Small window so 'testing' (in chunk 1) scrolls out before 'bun'
@@ -980,14 +941,14 @@ describe("Doc Injector Extension - Multi-Chunk Stream Accumulation", () => {
       { message: { role: "assistant", content: "x".repeat(80) + " testing" } },
       api._sessionCtx,
     );
-    let abortCalls = (
+    const abortCalls = (
       api._sessionCtx.abort as unknown as { calls: unknown[][] }
     ).calls;
     expect(abortCalls.length).toBe(0);
 
     // Chunk 2 (179 chars): 'testing' is now at pos 80-87, outside the trailing
     // 30-char window [149, 178]. 'bun' is at pos 170-172, inside the window.
-    // → matcher sees 'bun', streamHits = {testing, bun}, size 2 → PROMOTED → abort.
+    // The second keyword promotes the doc for the next agent run.
     await api.emit(
       "message_update",
       {
@@ -998,9 +959,11 @@ describe("Doc Injector Extension - Multi-Chunk Stream Accumulation", () => {
       },
       api._sessionCtx,
     );
-    abortCalls = (api._sessionCtx.abort as unknown as { calls: unknown[][] })
-      .calls;
-    expect(abortCalls.length).toBe(1);
+    expect(abortCalls).toHaveLength(0);
+    const result = await triggerAgentStart(api);
+    expect(
+      (result as { message?: { content: string } })?.message?.content,
+    ).toContain("Testing Guide");
   });
 
   test("does NOT promote when no chunk contains any keyword", async () => {
@@ -1251,66 +1214,35 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
     ).toBeUndefined();
   });
 
-  test("auto-abort + restart: no duplicate injection across the restart", async () => {
-    // Simulate: assistant is mid-stream and mentions a NEW keyword, which
-    // triggers ctx.abort(). The extension then sends a "continue" message
-    // via setTimeout(0) in agent_end. The continue-turn should inject
-    // exactly once (not re-trigger the abort and not double-inject).
-    vi.useFakeTimers();
+  test("streamed match injects once on the next prompt", async () => {
     const api = createMockAPI();
     await docInjectorExtension(
       api as unknown as Parameters<typeof docInjectorExtension>[0],
     );
     await triggerSessionStart(api);
-
-    // Turn 1: user triggers initial injection
     await triggerInput(api, "explain testing");
-    const r1 = await triggerAgentStart(api, "x");
     expect(
-      (r1 as { message?: { content: string } } | undefined)?.message?.content,
+      ((await triggerAgentStart(api, "x")) as { message?: { content: string } })
+        ?.message?.content,
     ).toContain("Testing Guide");
-
-    // Turn 2: assistant is mid-streaming, mentions a new keyword
-    // (workflow, which hasn't been injected yet)
     api._setIdle(false);
+    await triggerAssistantStream(api, "let's also cover the workflow");
+    expect(
+      (api._sessionCtx.abort as unknown as { calls: unknown[][] }).calls,
+    ).toHaveLength(0);
     await triggerInput(api, "more please");
-    await api.emit(
-      "message_update",
-      {
-        message: {
-          role: "assistant",
-          content: "let's also cover the workflow",
-        },
-      },
-      api._sessionCtx,
-    );
-
-    // Abort should fire (because workflow is a new match while streaming)
-    const abortCalls = (
-      api._sessionCtx.abort as unknown as { calls: unknown[][] }
-    ).calls;
-    expect(abortCalls.length).toBe(1);
-
-    // agent_end -> "continue" is queued via setTimeout
-    await api.emit("agent_end", {}, api._sessionCtx);
-    vi.runAllTimers();
-
-    const sendCalls = (api.sendUserMessage as unknown as { calls: unknown[][] })
-      .calls;
-    expect(sendCalls.length).toBe(1);
-    expect(sendCalls[0][0]).toBe("continue");
-
-    // Drain the queued "continue" turn
-    await triggerInput(api, "continue");
-    const r2 = await triggerAgentStart(api, "x");
-    const c2 =
-      (r2 as { message?: { content: string } } | undefined)?.message?.content ??
-      "";
-    expect(c2).toContain("Workflow Guide");
-    // The previously-injected doc should NOT appear again
-    expect(c2).not.toContain("Testing Guide");
-
-    vi.useRealTimers();
+    const result = await triggerAgentStart(api, "x");
+    const content =
+      (result as { message?: { content: string } })?.message?.content ?? "";
+    expect(content).toContain("Workflow Guide");
+    expect(content).not.toContain("Testing Guide");
+    expect(
+      (
+        (await triggerAgentStart(api, "x")) as
+          | { message?: { content: string } }
+          | undefined
+      )?.message,
+    ).toBeUndefined();
   });
 
   test("re-injection is possible ONLY after /doc-inject reset, not before", async () => {

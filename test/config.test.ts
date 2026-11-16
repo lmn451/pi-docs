@@ -202,4 +202,30 @@ describe("loadConfig", () => {
     expect(config.exclude).toEqual(["node_modules/**", "dist/**"]);
     rmSync(tmpDir, { recursive: true, force: true });
   });
+  test("defaults to simple mode and accepts an explicit keywords mode", async () => {
+    const tmpDir = join(process.cwd(), ".test-config-mode");
+    mkdirSync(join(tmpDir, ".pi"), { recursive: true });
+    expect((await loadConfig(tmpDir, silentNotifier)).mode).toBe("simple");
+    writeFileSync(
+      join(tmpDir, ".pi", "doc-injector.json"),
+      JSON.stringify({ mode: "keywords" }),
+    );
+    expect((await loadConfig(tmpDir, silentNotifier)).mode).toBe("keywords");
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("rejects invalid path and boolean values, but keeps explicit empty exclusions", async () => {
+    const tmpDir = join(process.cwd(), ".test-config-bad-fields");
+    mkdirSync(join(tmpDir, ".pi"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, ".pi", "doc-injector.json"),
+      JSON.stringify({ docsPath: 7, recursive: 0, mode: "bad", exclude: [] }),
+    );
+    const config = await loadConfig(tmpDir, silentNotifier);
+    expect(config.docsPath).toBe(DEFAULT_CONFIG.docsPath);
+    expect(config.recursive).toBe(true);
+    expect(config.mode).toBe("simple");
+    expect(config.exclude).toEqual([]);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
 });

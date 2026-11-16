@@ -69,6 +69,24 @@ describe("loadCache", () => {
     expect(cache.version).toBe(1);
     expect(cache.files).toEqual({});
   });
+  test("rejects malformed keyword entries rather than crashing the matcher", async () => {
+    writeFileSync(
+      join(TEST_DIR, ".pi", "doc-injector-cache.json"),
+      JSON.stringify({
+        version: 1,
+        files: { "auth.md": { mtimeMs: 1, keywords: [42] } },
+      }),
+    );
+    expect((await loadCache(TEST_DIR, silentNotifier)).files).toEqual({});
+  });
+
+  test("rejects invalid cache maps", async () => {
+    writeFileSync(
+      join(TEST_DIR, ".pi", "doc-injector-cache.json"),
+      JSON.stringify({ version: 1, files: [] }),
+    );
+    expect((await loadCache(TEST_DIR, silentNotifier)).files).toEqual({});
+  });
 });
 
 describe("saveCache + loadCache roundtrip", () => {

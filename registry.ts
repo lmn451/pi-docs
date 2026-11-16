@@ -6,7 +6,7 @@
  * 2. readFile(filePath) → parse frontmatter or generate keywords
  */
 import type { Dirent } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { lstat, readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 import {
   LLM_CACHE_SENTINEL,
@@ -34,7 +34,7 @@ function parseFrontmatterBlock(
   const keywords: string[] = [];
 
   // Try flow array: keywords: [a, b, c]
-  const flowMatch = block.match(/keywords:\s*\[([^\]]*)\]/);
+  const flowMatch = block.match(/^keywords:[ \t]*\[([^\]]*)\]/m);
   if (flowMatch) {
     keywords.push(
       ...flowMatch[1]
@@ -44,7 +44,9 @@ function parseFrontmatterBlock(
     );
   } else {
     // Try block array: keywords:\n  - a\n  - b
-    const blockMatches = block.matchAll(/keywords:\s*\n((?:\s*-\s*.+\n?)+)/g);
+    const blockMatches = block.matchAll(
+      /^keywords:[ \t]*\n((?:[ \t]*-[ \t]*.+\n?)+)/gm,
+    );
     for (const bm of blockMatches) {
       const items = bm[1].matchAll(/^\s*-\s*["']?([^"'\n]+)["']?$/gm);
       for (const im of items) {
@@ -345,6 +347,8 @@ export class DocRegistry {
   ): Promise<DocEntry | null> {
     try {
       // ─── METADATA ─────────────────────────────────────────────
+      const linkStat = await lstat(filePath);
+      if (!linkStat.isFile()) return null;
       const fileStat = await stat(filePath);
 
       if (fileStat.size > this.config.maxFileSize) {
@@ -356,6 +360,25 @@ export class DocRegistry {
 
       // Read once — needed for frontmatter parse, content, and title.
       const raw = await readFile(filePath, "utf-8");
+
+      if (this.config.mode === "simple") {
+        // Simple mode indexes only docs/{name}.md, not subfolders or metadata.
+        if (relativePath !== fileName || extname(fileName) !== ".md") {
+          return null;
+        }
+        const name = fileName.slice(0, -3);
+        if (!name) return null;
+        return {
+          filePath,
+          fileName,
+          relativePath,
+          title: extractTitle(raw, fileName),
+          keywords: [name],
+          content: raw,
+          injected: preserved.get(filePath) ?? false,
+          keywordSource: "filename",
+        };
+      }
 
       // ─── PRIORITY 1: Frontmatter (authoritative) ─────────────
       const parsed = parseFrontmatter(raw);

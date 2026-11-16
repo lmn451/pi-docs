@@ -20,7 +20,7 @@ function clampInt(
   fieldName: string,
   notifier: Notifier,
 ): number {
-  if (typeof value !== "number" || Number.isNaN(value)) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     return defaultVal;
   }
   const intVal = Math.trunc(value);
@@ -57,7 +57,16 @@ function validateGlobArray(
       );
     }
   }
-  return result.length > 0 ? result : [...defaultVal];
+  return result;
+}
+
+/** Keep invalid config values from reaching filesystem and matching code. */
+function validString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function validBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 /**
@@ -74,10 +83,18 @@ export async function loadConfig(
 
   try {
     const raw = await readFile(configPath, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<DocInjectorConfig>;
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Config must be an object");
+    }
+    const parsed = value as Partial<DocInjectorConfig>;
 
     return {
-      docsPath: parsed.docsPath ?? DEFAULT_CONFIG.docsPath,
+      mode:
+        parsed.mode === "simple" || parsed.mode === "keywords"
+          ? parsed.mode
+          : DEFAULT_CONFIG.mode,
+      docsPath: validString(parsed.docsPath, DEFAULT_CONFIG.docsPath),
       matchThreshold: clampInt(
         parsed.matchThreshold,
         DEFAULT_CONFIG.matchThreshold,
@@ -102,7 +119,7 @@ export async function loadConfig(
         "contextThreshold",
         notifier,
       ),
-      recursive: parsed.recursive ?? DEFAULT_CONFIG.recursive,
+      recursive: validBoolean(parsed.recursive, DEFAULT_CONFIG.recursive),
       include: validateGlobArray(
         parsed.include,
         DEFAULT_CONFIG.include,
@@ -121,8 +138,11 @@ export async function loadConfig(
         "maxFileSize",
         notifier,
       ),
-      autoKeywords: parsed.autoKeywords ?? DEFAULT_CONFIG.autoKeywords,
-      llmKeywords: parsed.llmKeywords ?? DEFAULT_CONFIG.llmKeywords,
+      autoKeywords: validBoolean(
+        parsed.autoKeywords,
+        DEFAULT_CONFIG.autoKeywords,
+      ),
+      llmKeywords: validBoolean(parsed.llmKeywords, DEFAULT_CONFIG.llmKeywords),
       maxConcurrent: clampInt(
         parsed.maxConcurrent,
         DEFAULT_CONFIG.maxConcurrent,

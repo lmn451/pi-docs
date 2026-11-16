@@ -73,11 +73,24 @@ export async function saveCache(
 
 /** Check that a parsed value matches the KeywordCache shape. */
 function isValidCache(value: unknown): value is KeywordCache {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const c = value as Record<string, unknown>;
   if (c.version !== CACHE_VERSION) return false;
-  if (!c.files || typeof c.files !== "object") return false;
-  return true;
+  if (!c.files || typeof c.files !== "object" || Array.isArray(c.files)) {
+    return false;
+  }
+  return Object.values(c.files).every((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return false;
+    }
+    const record = entry as Record<string, unknown>;
+    return (
+      typeof record.mtimeMs === "number" &&
+      Number.isFinite(record.mtimeMs) &&
+      Array.isArray(record.keywords) &&
+      record.keywords.every((keyword) => typeof keyword === "string")
+    );
+  });
 }
 
 /** Return a fresh empty cache. */

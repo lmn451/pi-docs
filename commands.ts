@@ -129,9 +129,9 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
       }
 
       const config = deps.getConfig();
-      if (!config.llmKeywords) {
+      if (config.mode !== "keywords" || !config.llmKeywords) {
         ctx.ui.notify(
-          "📄 LLM keyword generation is disabled (llmKeywords: false in config)",
+          "📄 LLM keyword generation requires mode: keywords and llmKeywords: true",
           "warning",
         );
         return;
