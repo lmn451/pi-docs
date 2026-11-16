@@ -87,6 +87,8 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   let llmBatchesCompleted = 0;
   let llmTotalFiles = 0;
   let cache: KeywordCache = { version: 1, files: {} };
+  // Reuse compiled patterns across chunks; discard them when the registry changes.
+  let streamMatcher: KeywordMatcher | null = null;
 
   // ---- Helpers ----
   const getRegistry = () => registry;
@@ -104,6 +106,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
         ? await loadCache(cwd, notifier)
         : { version: 1, files: {} };
     registry = await DocRegistry.create(docsPath, config, cache, notifier);
+    streamMatcher = null;
 
     const dirty = registry.getDirtyCache();
     if (Object.keys(dirty).length > 0) {
@@ -194,6 +197,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     streamHits.clear();
     continuedForDocs = false;
     continuationLimitNotified = false;
+    streamMatcher = null;
 
     // Bind the notifier to the live context FIRST so any warnings emitted
     // during initRegistry below go directly to the TUI instead of being
@@ -224,6 +228,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
 
     await registry.rebuild();
+    streamMatcher = null;
 
     const dirty = registry.getDirtyCache();
     if (Object.keys(dirty).length > 0) {
@@ -282,16 +287,17 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     const textBuffer = extractText(content);
     if (!textBuffer) return;
 
-    // Discovery matcher: threshold 1 finds any keyword present in the rolling
-    // tail window. The real matchThreshold is applied below against the
-    // keywords accumulated across all chunks of this message.
-    const matcher = buildMatcher({
-      matchThreshold: 1,
-      windowSize: config.streamWindowSize,
-    });
-    if (!matcher) return;
+    // Discovery uses threshold 1 per chunk; streamHits applies the configured
+    // threshold across the whole message. Reuse compiled patterns between chunks.
+    if (!streamMatcher) {
+      streamMatcher = buildMatcher({
+        matchThreshold: 1,
+        windowSize: config.streamWindowSize,
+      });
+    }
+    if (!streamMatcher) return;
 
-    const results = matcher.match(textBuffer);
+    const results = streamMatcher.match(textBuffer);
 
     for (const result of results) {
       const filePath = result.entry.filePath;
@@ -311,6 +317,8 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   // Hits belong to one assistant message. Clear them after any message ends.
   pi.on("message_end", async () => {
     streamHits.clear();
+    textBuffer = "";
+    streamMatcher = null;
   });
 
   const prepareInjection = (

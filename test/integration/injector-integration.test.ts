@@ -10,6 +10,7 @@ import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 import docInjectorExtension from "../../index";
+import { KeywordMatcher } from "../../matcher";
 
 // ---- Simple mock factory ----
 function createMockFn() {
@@ -1262,10 +1263,10 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
 
     const msg = (
       r as
-        | {
-            message?: { customType: string; content: string; display: boolean };
-          }
-        | undefined
+      | {
+        message?: { customType: string; content: string; display: boolean };
+      }
+      | undefined
     )?.message;
     expect(msg).toBeDefined();
     expect(msg?.customType).toBe("doc-injector");
@@ -1328,8 +1329,8 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
     expect(
       (
         (await triggerAgentStart(api, "x")) as
-          | { message?: { content: string } }
-          | undefined
+        | { message?: { content: string } }
+        | undefined
       )?.message,
     ).toBeUndefined();
   });
@@ -1370,5 +1371,89 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
       (rAfter as { message?: { content: string } } | undefined)?.message
         ?.content ?? "";
     expect(c).toContain("Testing Guide");
+  });
+});
+describe("Doc Injector Extension - Streaming Matcher Caching", () => {
+  beforeEach(() => {
+    setupDocs();
+    setupConfig();
+  });
+  afterEach(() => {
+    cleanupDocs();
+    cleanupConfig();
+    vi.restoreAllMocks();
+  });
+
+  test("reuses one matcher across chunks within an assistant message", async () => {
+    const matchSpy = vi.spyOn(KeywordMatcher.prototype, "match");
+    const api = createMockAPI();
+    await docInjectorExtension(
+      api as unknown as Parameters<typeof docInjectorExtension>[0],
+    );
+    await triggerSessionStart(api);
+
+    for (let i = 0; i < 3; i++) {
+      await api.emit(
+        "message_update",
+        {
+          message: {
+            role: "assistant",
+            content: `chunk ${i} has no matching keywords`,
+          },
+        },
+        api._sessionCtx,
+      );
+    }
+
+    expect(matchSpy).toHaveBeenCalledTimes(3);
+    expect(new Set(matchSpy.mock.contexts).size).toBe(1);
+  });
+
+  test("builds a fresh matcher after message_end", async () => {
+    const matchSpy = vi.spyOn(KeywordMatcher.prototype, "match");
+    const api = createMockAPI();
+    await docInjectorExtension(
+      api as unknown as Parameters<typeof docInjectorExtension>[0],
+    );
+    await triggerSessionStart(api);
+
+    await api.emit(
+      "message_update",
+      {
+        message: {
+          role: "assistant",
+          content: "first chunk has no matching keywords",
+        },
+      },
+      api._sessionCtx,
+    );
+    await api.emit(
+      "message_update",
+      {
+        message: {
+          role: "assistant",
+          content: "second chunk has no matching keywords",
+        },
+      },
+      api._sessionCtx,
+    );
+    await api.emit(
+      "message_end",
+      { message: { role: "user", content: "" } },
+      api._sessionCtx,
+    );
+    await api.emit(
+      "message_update",
+      {
+        message: {
+          role: "assistant",
+          content: "next message has no matching keywords",
+        },
+      },
+      api._sessionCtx,
+    );
+
+    expect(matchSpy).toHaveBeenCalledTimes(3);
+    expect(new Set(matchSpy.mock.contexts).size).toBe(2);
   });
 });
