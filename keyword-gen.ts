@@ -234,7 +234,9 @@ function addFromHeadings(content: string, out: string[]): void {
   const headingRegex = /^#{1,6}\s+(.+)$/gm;
   let match: RegExpExecArray | null;
   while ((match = headingRegex.exec(content)) !== null) {
-    const headingText = match[1].trim();
+    const heading = match[1];
+    if (heading === undefined) continue;
+    const headingText = heading.trim();
     // Split heading into words
     const words = headingText.split(/\s+/);
     for (const word of words) {
@@ -255,6 +257,7 @@ function addFromCodeSymbols(content: string, out: string[]): void {
   let match: RegExpExecArray | null;
   while ((match = symbolRegex.exec(content)) !== null) {
     const name = match[1];
+    if (name === undefined) continue;
     const cleaned = name.toLowerCase();
     if (cleaned.length >= 3 && !STOP_WORDS.has(cleaned)) {
       out.push(cleaned);

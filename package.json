@@ -16,7 +16,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck:core",
+    "typecheck:core": "tsc -p tsconfig.core.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky"
