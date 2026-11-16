@@ -5,7 +5,7 @@
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -795,6 +795,42 @@ Added after initial load.
     const text = result.content[0].text;
     expect(text).toContain("1"); // Only 1 file saved, not 2
   });
+
+  test("LLM keyword writes preserve heuristic cache entries", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(
+      api as unknown as Parameters<typeof docInjectorExtension>[0],
+    );
+    await triggerSessionStart(api);
+
+    const cachePath = resolve(
+      api._sessionCtx.cwd,
+      ".pi/doc-injector-cache.json",
+    );
+    const before = JSON.parse(readFileSync(cachePath, "utf-8"));
+    const heuristicEntry = before.files["no-frontmatter.md"];
+    expect(heuristicEntry).toBeDefined();
+    expect(heuristicEntry.mtimeMs).not.toBe(-1);
+
+    const tool = api._tools.get("_doc_injector_keywords");
+    expect(tool).toBeDefined();
+
+    await tool!.execute(
+      "tool-call-id",
+      { keywords: [{ path: "testing-guide.md", keywords: ["from-llm"] }] },
+      undefined,
+      undefined,
+      api._sessionCtx,
+    );
+
+    const after = JSON.parse(readFileSync(cachePath, "utf-8"));
+    expect(after.files["no-frontmatter.md"]).toEqual(heuristicEntry);
+    expect(after.files["testing-guide.md"]).toEqual({
+      mtimeMs: -1,
+      keywords: ["from-llm"],
+    });
+  });
+
 });
 
 describe("Doc Injector Extension - Auto-Abort on Stream", () => {
@@ -1173,10 +1209,10 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
 
     const msg = (
       r as
-        | {
-            message?: { customType: string; content: string; display: boolean };
-          }
-        | undefined
+      | {
+        message?: { customType: string; content: string; display: boolean };
+      }
+      | undefined
     )?.message;
     expect(msg).toBeDefined();
     expect(msg?.customType).toBe("doc-injector");
@@ -1239,8 +1275,8 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
     expect(
       (
         (await triggerAgentStart(api, "x")) as
-          | { message?: { content: string } }
-          | undefined
+        | { message?: { content: string } }
+        | undefined
       )?.message,
     ).toBeUndefined();
   });

@@ -140,6 +140,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       }>;
       const { stat } = await import("node:fs/promises");
       let saved = 0;
+      const dirtyEntries: Record<string, CacheEntry> = {};
       for (const item of generated) {
         // Only documents in the registry may receive generated keywords.
         const entry = registry
@@ -148,13 +149,13 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
         if (config.mode !== "keywords" || !entry) continue;
         const fileStat = await stat(entry.filePath).catch(() => null);
         if (!fileStat?.isFile()) continue;
-        cache.files[item.path] = {
+        dirtyEntries[item.path] = {
           mtimeMs: LLM_CACHE_SENTINEL,
           keywords: item.keywords.map((k) => k.toLowerCase()).slice(0, 20),
         };
         saved++;
       }
-      if (saved > 0) await saveCache(ctx.cwd, cache);
+      if (saved > 0) await safeSaveCache(ctx.cwd, dirtyEntries);
       llmBatchesCompleted++;
       llmTotalFiles += saved;
       return {
