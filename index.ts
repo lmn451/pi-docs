@@ -1,72 +1,13 @@
 /**
- * Doc Injector Extension for Pi
+ * Pi extension that selects project docs from user input or assistant text/thinking.
+ * The default matcher uses docs/{name}.md; keyword matching is opt-in.
+ * Matches from assistant output wait until the next agent run. We never abort
+ * a response or send a synthetic user message to restart it.
  *
- * Automatically injects relevant project documentation into the LLM context
- * by monitoring streaming output for keyword matches.
- *
- * ## Injection Model: CustomMessage (NOT system prompt)
- *
- * On match, the extension returns a `message` field from `before_agent_start`
- * (a `CustomMessage` with `customType: "doc-injector"`). Pi appends this to the
- * session and sends it to the LLM as part of the conversation — the system
- * prompt is NEVER mutated.
- *
- * Why a message and not the system prompt:
- * - The system prompt is the highest-value Anthropic prompt-cache slot. Each
- *   unique system prompt text breaks the cache (5-min TTL by default).
- *   Appending per-turn doc content there would invalidate the cache on every
- *   first injection.
- * - A `message` only adds to the conversation prefix, leaving the system
- *   prompt cache warm across turns.
- *
- * ## Streaming Model
- *
- * This extension relies on Pi's streaming event contract:
- * - `message_update`: Fires with the FULL accumulated assistant content on each
- *   streaming chunk. The extension replaces (not appends to) its text buffer
- *   on each update.
- * - `message_end`: Fires once when the assistant's response is complete.
- *   The extension finalizes matches and notifies the user.
- * - `before_agent_start`: Fires before the next agent turn. The extension
- *   returns a `message` carrying the matched docs and marks them as injected.
- *
- * ## Injection Lifecycle
- *
- * The `injected` flag is per-session: when `session_start` fires, the registry
- * is recreated from scratch (via initRegistry), resetting all flags. Within a
- * session, once a doc is injected, it won't be re-injected unless the user
- * manually runs `/doc-inject reset`.
- *
- * ## Double-Injection Prevention
- *
- * Two independent guards make duplicate injection impossible in a session:
- *
- * 1. **Matcher-level guard**: `buildMatcher()` calls `getNonInjectedEntries()`,
- *    so already-injected docs are excluded from the candidate set. The
- *    `pendingMatches` map is only populated from the matcher's output, so
- *    once a doc is injected, the next `input` event cannot re-match it.
- *
- * 2. **Mark guard**: `markInjected()` is called inside `before_agent_start`
- *    AFTER the build step but BEFORE the return value is processed. This
- *    means the flag flips synchronously with the LLM call — even if the
- *    session is reloaded mid-turn, the next `buildMatcher()` won't see the
- *    doc as a candidate.
- *
- * The two guards are redundant by design: if matcher exclusion ever fails
- * (e.g. a race), the mark step still prevents the doc from being sent twice.
- *
- * ## Race Condition Note
- *
- * If `resources_discover` (rebuild) fires while `before_agent_start` is running,
- * `registry.entries` gets replaced. The `matchedEntries` array would hold stale
- * references. The current code is safe because `pendingMatches` (a Map by filePath)
- * is cleared after injection, and `markInjected()` operates on the registry's
- * current entries, not the stale array.
+ * Injection returns a CustomMessage from before_agent_start. The system prompt
+ * is not changed. Registry flags and the matcher both prevent repeat injection.
  */
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { resolve } from "node:path";
 import { loadCache, saveCache } from "./cache";
@@ -103,7 +44,6 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   // keyword can scroll out of the window before another appears. Accumulating
   // the union here lets matchThreshold be met across chunks; reset at message_end.
   let streamHits = new Map<string, Set<string>>();
-  let abortingForInjection = false; // guard against cascading aborts
 
   // P5.4b — Guard flags for LLM keyword generation
   let keywordGenInFlight = false;
@@ -144,7 +84,10 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   const initRegistry = async (cwd: string) => {
     config = await loadConfig(cwd, notifier);
     const docsPath = resolve(cwd, config.docsPath);
-    cache = await loadCache(cwd, notifier);
+    cache =
+      config.mode === "keywords"
+        ? await loadCache(cwd, notifier)
+        : { version: 1, files: {} };
     registry = await DocRegistry.create(docsPath, config, cache, notifier);
 
     const dirty = registry.getDirtyCache();
@@ -158,7 +101,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   ): KeywordMatcher | null => {
     if (!registry) return null;
     return new KeywordMatcher(registry.getNonInjectedEntries(), {
-      matchThreshold: config.matchThreshold,
+      matchThreshold: config.mode === "simple" ? 1 : config.matchThreshold,
       ...options,
     });
   };
@@ -198,20 +141,20 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       const { stat } = await import("node:fs/promises");
       let saved = 0;
       for (const item of generated) {
-        const absPath = resolve(ctx.cwd, config.docsPath, item.path);
-        const fileStat = await stat(absPath).catch(() => null);
-        if (!fileStat) {
-          continue;
-        }
+        // Only documents in the registry may receive generated keywords.
+        const entry = registry
+          ?.getEntries()
+          .find((doc) => doc.relativePath === item.path);
+        if (config.mode !== "keywords" || !entry) continue;
+        const fileStat = await stat(entry.filePath).catch(() => null);
+        if (!fileStat?.isFile()) continue;
         cache.files[item.path] = {
-          // Use the sentinel — never the real mtime — so the next rebuild
-          // surfaces this entry as keywordSource: "llm" instead of "cache".
           mtimeMs: LLM_CACHE_SENTINEL,
           keywords: item.keywords.map((k) => k.toLowerCase()).slice(0, 20),
         };
         saved++;
       }
-      await saveCache(ctx.cwd, cache);
+      if (saved > 0) await saveCache(ctx.cwd, cache);
       llmBatchesCompleted++;
       llmTotalFiles += saved;
       return {
@@ -224,22 +167,22 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   });
 
   // ---- Event: session_start ----
-  // Pi emits session_start for startup, reload, and real session transitions.
-  // Skip the reload variant because resources_discover will rebuild docs right
-  // after it, and deduplicate any overlapping non-reload inits.
-  pi.on("session_start", async (event, ctx) => {
+  // Pi creates a fresh extension runtime on reload and session replacement.
+  // Initialize on every session_start; deduplicate only concurrent calls.
+  pi.on("session_start", async (_event, ctx) => {
     // P5.4d — Safety unbind: clear all LLM keyword gen state on session start
     keywordGenInFlight = false;
     llmBatchesCompleted = 0;
     llmTotalFiles = 0;
+    pendingMatches.clear();
+    streamHits.clear();
+    textBuffer = "";
 
     // Bind the notifier to the live context FIRST so any warnings emitted
     // during initRegistry below go directly to the TUI instead of being
     // buffered. Messages buffered from earlier (e.g. the factory-body
     // loadConfig call) are flushed here in arrival order.
     notifier.setContext(ctx);
-
-    if (event.reason === "reload") return;
 
     if (initRegistryPromise) {
       await initRegistryPromise;
@@ -258,10 +201,10 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     if (!registry) throw new Error("No registry loaded");
     const effectiveCwd = cwd ?? process.cwd();
 
-    // Reload cache from disk to pick up LLM-generated entries
-    const freshCache = await loadCache(effectiveCwd, notifier);
-    cache = freshCache;
-    registry.updateCache(cache);
+    if (config.mode === "keywords") {
+      cache = await loadCache(effectiveCwd, notifier);
+      registry.updateCache(cache);
+    }
 
     await registry.rebuild();
 
@@ -308,12 +251,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
   });
 
-  // ---- Event: message_update (assistant streaming) ----
-  // For assistant streaming messages: if we detect NEW keyword matches for
-  // non-injected docs, abort the current generation and restart with the
-  // injected context — no waiting for the next turn.
-  pi.on("message_update", async (event, ctx) => {
-    // P5.4b — Guard: skip auto-abort logic during LLM keyword generation
+  // Assistant text and thinking are recorded for the next agent run.
+  // Do not abort an active response or send a synthetic user message.
+  pi.on("message_update", async (event, _ctx) => {
     if (keywordGenInFlight) return;
 
     if (!enabled || !registry) return;
@@ -336,46 +276,25 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
 
     const results = matcher.match(textBuffer);
 
-    let hasNew = false;
     for (const result of results) {
       const filePath = result.entry.filePath;
       const seen = streamHits.get(filePath) ?? new Set<string>();
       for (const kw of result.matchedKeywords) seen.add(kw);
       streamHits.set(filePath, seen);
 
-      // Promote to a pending injection once enough distinct keywords have been
-      // seen across the message. Only the first crossing counts as "new".
-      if (seen.size >= config.matchThreshold && !pendingMatches.has(filePath)) {
+      const threshold = config.mode === "simple" ? 1 : config.matchThreshold;
+      if (seen.size >= threshold && !pendingMatches.has(filePath)) {
         pendingMatches.set(filePath, [...seen]);
-        hasNew = true;
       }
     }
-
-    if (hasNew && !ctx.isIdle() && !abortingForInjection) {
-      abortingForInjection = true;
-      ctx.abort();
-    }
   });
 
-  // ---- Event: message_end (finalize matches) ----
-  // Notification moved to before_agent_start so it fires for both user-triggered
-  // and auto-abort-triggered injections. message_end now just resets state.
-  // State resets run BEFORE the role/registry guards so a non-assistant
-  // message_end (e.g. tool result, user message) can never leak a stale
-  // textBuffer or streamHits into the next assistant turn.
-  pi.on("message_end", async (event, _ctx) => {
-    textBuffer = "";
+  // Hits belong to one assistant message. Clear them after any message ends.
+  pi.on("message_end", async () => {
     streamHits.clear();
-    if (!enabled || !registry) return;
-    const msg = event.message;
-    if (msg.role !== "assistant") return;
   });
 
-  // ---- Event: before_agent_start (inject as CustomMessage) ----
-  // Returns a `message` (CustomMessage with customType: "doc-injector") rather
-  // than mutating `systemPrompt`. The system prompt stays byte-identical across
-  // turns, preserving the prompt cache. The CustomMessage is appended to the
-  // session and sent to the LLM as part of the conversation.
+  // Inject as a CustomMessage. The system prompt stays unchanged.
   pi.on("before_agent_start", async (event, ctx) => {
     // P5.4b — Guard: skip injection during LLM keyword generation
     if (keywordGenInFlight) return;
@@ -432,8 +351,8 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     };
   });
 
-  // ---- Event: agent_end (restart after auto-abort + LLM batch summary) ----
-  pi.on("agent_end", async (event, ctx) => {
+  // ---- Event: agent_end (LLM keyword batch summary) ----
+  pi.on("agent_end", async (_event, ctx) => {
     // P5.4c — Summary notification from agent_end (BLOCKER-3)
     keywordGenInFlight = false;
     if (llmBatchesCompleted > 0) {
@@ -443,14 +362,6 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       );
       llmBatchesCompleted = 0;
       llmTotalFiles = 0;
-    }
-
-    if (abortingForInjection) {
-      abortingForInjection = false;
-      // Defer sendUserMessage to next tick to avoid re-entrancy issues.
-      setTimeout(() => {
-        pi.sendUserMessage("continue");
-      }, 0);
     }
   });
 

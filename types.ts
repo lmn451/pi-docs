@@ -3,7 +3,12 @@
  */
 
 /** Source of keywords for a doc entry. */
-export type KeywordSource = "frontmatter" | "heuristic" | "llm" | "cache";
+export type KeywordSource =
+  | "filename"
+  | "frontmatter"
+  | "heuristic"
+  | "llm"
+  | "cache";
 
 /** A parsed document from the docs folder. */
 export interface DocEntry {
@@ -70,6 +75,8 @@ export interface GlobFilter {
 
 /** Extension configuration. */
 export interface DocInjectorConfig {
+  /** Simple filename matching (default) or legacy keyword matching. */
+  mode: "simple" | "keywords";
   /** Path to docs folder (relative to cwd) */
   docsPath: string;
   /** Minimum keyword matches to trigger injection */
@@ -103,6 +110,7 @@ export interface DocInjectorConfig {
 
 /** Default configuration values. */
 export const DEFAULT_CONFIG: DocInjectorConfig = {
+  mode: "simple",
   docsPath: "./docs",
   matchThreshold: 2,
   streamWindowSize: 500,

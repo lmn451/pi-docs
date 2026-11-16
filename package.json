@@ -1,7 +1,7 @@
 {
   "name": "pi-doc-injector",
   "version": "0.6.0",
-  "description": "Auto-inject relevant project documentation into Pi's LLM context based on keyword matching",
+  "description": "Inject project docs into Pi context when their filename appears in the conversation",
   "type": "module",
   "main": "./index.ts",
   "exports": {
@@ -43,7 +43,7 @@
     "typebox": "^1.1.38"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.79.0"
+    "@earendil-works/pi-coding-agent": "^1.5.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

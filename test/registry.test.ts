@@ -1,6 +1,6 @@
 import { parseFrontmatter, DocRegistry } from "../registry";
 import { silentNotifier } from "./_helpers/silentNotifier";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import {
@@ -190,6 +190,11 @@ No frontmatter here.
 `;
     expect(parseFrontmatter(content)).toBeNull();
   });
+  test("does not treat a different field as keywords", () => {
+    expect(
+      parseFrontmatter("---\ntitle: Doc\nnot_keywords: [wrong]\n---\nBody"),
+    ).toBeNull();
+  });
 });
 
 describe("DocRegistry recursive scanning", () => {
@@ -217,6 +222,7 @@ describe("DocRegistry recursive scanning", () => {
       tmpDir,
       {
         ...DEFAULT_CONFIG,
+        mode: "keywords",
         docsPath: tmpDir,
         include: ["**/*.md"],
         exclude: [],
@@ -245,6 +251,7 @@ describe("DocRegistry recursive scanning", () => {
       tmpDir,
       {
         ...DEFAULT_CONFIG,
+        mode: "keywords",
         docsPath: tmpDir,
         include: ["**/*.md"],
         exclude: [],
@@ -264,6 +271,7 @@ describe("DocRegistry recursive scanning", () => {
       tmpDir,
       {
         ...DEFAULT_CONFIG,
+        mode: "keywords",
         docsPath: tmpDir,
         include: ["**/*.md"],
         exclude: [],
@@ -277,12 +285,42 @@ describe("DocRegistry recursive scanning", () => {
     expect(nested!.relativePath).toContain("nested.md");
     expect(nested!.fileName).toBe("nested.md");
   });
+  test("skips symlinks to files outside docs in either scan mode", async () => {
+    const outside = join(process.cwd(), ".test-docs-outside.md");
+    writeFileSync(
+      outside,
+      "---\ntitle: Outside\nkeywords: [outside]\n---\nSecret text",
+    );
+    symlinkSync(outside, join(tmpDir, "alias.md"));
+    try {
+      for (const recursive of [true, false]) {
+        const reg = await DocRegistry.create(
+          tmpDir,
+          {
+            ...DEFAULT_CONFIG,
+            mode: "keywords",
+            recursive,
+            include: ["**/*.md"],
+            exclude: [],
+          },
+          undefined,
+          silentNotifier,
+        );
+        expect(reg.getEntries().map((entry) => entry.fileName)).not.toContain(
+          "alias.md",
+        );
+      }
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  });
 });
 
 describe("DocRegistry mutation methods", () => {
   const tmpDir = join(process.cwd(), ".test-docs-mutation");
   const testConfig: DocInjectorConfig = {
     ...DEFAULT_CONFIG,
+    mode: "keywords",
     docsPath: tmpDir,
     include: ["**/*.md"],
     exclude: [],
@@ -396,6 +434,7 @@ describe("DocRegistry keyword-source priority", () => {
   const tmpDir = join(process.cwd(), ".test-docs-priority");
   const testConfig: DocInjectorConfig = {
     ...DEFAULT_CONFIG,
+    mode: "keywords",
     docsPath: tmpDir,
     include: ["**/*.md"],
     exclude: [],
@@ -639,6 +678,7 @@ describe("DocRegistry missing-folder behavior", () => {
   const missingDir = join(process.cwd(), ".test-docs-missing");
   const testConfig: DocInjectorConfig = {
     ...DEFAULT_CONFIG,
+    mode: "keywords",
     docsPath: missingDir,
     include: ["**/*.md"],
     exclude: [],

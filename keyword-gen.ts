@@ -222,7 +222,7 @@ function addFromFilename(fileName: string, out: string[]): void {
   const parts = nameWithoutExt.split(/[-_.\s]+/);
 
   for (const part of parts) {
-    const cleaned = part.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+    const cleaned = part.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
     if (cleaned.length >= 3 && !STOP_WORDS.has(cleaned)) {
       out.push(cleaned);
     }
@@ -238,7 +238,7 @@ function addFromHeadings(content: string, out: string[]): void {
     // Split heading into words
     const words = headingText.split(/\s+/);
     for (const word of words) {
-      const cleaned = word.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      const cleaned = word.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
       if (cleaned.length >= 3 && !STOP_WORDS.has(cleaned)) {
         out.push(cleaned);
       }
@@ -251,7 +251,7 @@ function addFromCodeSymbols(content: string, out: string[]): void {
   // Match: function name, class name, const name, interface name, type name, enum name
   // Also: export function, export class, export const, etc.
   const symbolRegex =
-    /(?:export\s+)?(?:async\s+)?(?:function|class|const|interface|type|enum)\s+(\w+)/gm;
+    /(?:export\s+)?(?:async\s+)?(?:function|class|const|interface|type|enum)\s+([\p{L}_][\p{L}\p{N}_]*)/gmu;
   let match: RegExpExecArray | null;
   while ((match = symbolRegex.exec(content)) !== null) {
     const name = match[1];

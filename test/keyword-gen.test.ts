@@ -221,4 +221,7 @@ describe("generateKeywords", () => {
       }
     });
   });
+  test("keeps non-Latin filename and heading keywords", () => {
+    expect(generateKeywords("身份验证.md", "# 身份验证")).toContain("身份验证");
+  });
 });
