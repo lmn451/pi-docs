@@ -105,9 +105,18 @@ export class KeywordMatcher {
     // window aren't lost.
     const { windowSize } = this.options;
     const sliced = windowSize > 0 && text.length > windowSize;
-    // Keep one preceding character so the left word boundary sees the true text.
-    const scanText = sliced ? text.slice(-windowSize - 1) : text;
-    const minStart = sliced ? 1 : 0;
+    // Preserve the complete preceding code point, including surrogate pairs.
+    const windowStart = sliced ? text.length - windowSize : 0;
+    let scanStart = Math.max(0, windowStart - 1);
+    if (
+      scanStart > 0 &&
+      /[\uDC00-\uDFFF]/.test(text[scanStart]) &&
+      /[\uD800-\uDBFF]/.test(text[scanStart - 1])
+    ) {
+      scanStart--;
+    }
+    const scanText = text.slice(scanStart);
+    const minStart = windowStart - scanStart;
 
     const results: MatchResult[] = [];
 

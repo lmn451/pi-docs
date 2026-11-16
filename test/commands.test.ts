@@ -1,64 +1,79 @@
-/**
- * Tests for the /doc-keywords-gen filter made reachable by the LLM label-fix.
- *
- * The /doc-keywords-gen command (commands.ts:113-119) filters out entries whose
- * keywordSource is "frontmatter", "cache", or "llm" — only heuristic-generated
- * entries are candidates for LLM upgrade. Before the LLM label-fix (which made
- * keywordSource: "llm" reachable), the "llm" branch in the filter was dead code.
- * This test pins down that the filter now actually excludes LLM-labeled entries.
- */
-import type { DocEntry } from "../types";
-import { describe, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { registerCommands } from "../commands";
+import { DocRegistry } from "../registry";
+import { DEFAULT_CONFIG } from "../types";
 
-const makeEntry = (
-  name: string,
-  source: DocEntry["keywordSource"],
-): DocEntry => ({
-  filePath: `/docs/${name}`,
-  fileName: name,
-  relativePath: name,
-  title: name,
-  keywords: ["some", "keyword"],
-  content: `# ${name}`,
-  injected: false,
-  keywordSource: source,
+const roots: string[] = [];
+afterEach(() => {
+  for (const root of roots.splice(0))
+    rmSync(root, { recursive: true, force: true });
 });
 
-describe("/doc-keywords-gen filter", () => {
-  // Replicates the filter logic from commands.ts:114-119. If the production
-  // code changes, update this — but the test's INTENT is "the filter
-  // excludes LLM-labeled entries", not "the filter has this exact shape".
-  const isCandidate = (e: DocEntry): boolean => {
-    if (e.keywordSource === "frontmatter") return false;
-    if (e.keywordSource === "cache") return false;
-    if (e.keywordSource === "llm") return false;
-    return true;
-  };
-
-  test("excludes frontmatter entries", () => {
-    const e = makeEntry("fm.md", "frontmatter");
-    expect(isCandidate(e)).toBe(false);
-  });
-
-  test("excludes cache entries (heuristic-written, surfaced as cache)", () => {
-    const e = makeEntry("cached.md", "cache");
-    expect(isCandidate(e)).toBe(false);
-  });
-
-  test("excludes LLM-labeled entries (the fix makes this branch reachable)", () => {
-    const e = makeEntry("llm.md", "llm");
-    expect(isCandidate(e)).toBe(false);
-  });
-
-  test("includes only heuristic entries", () => {
-    const entries = [
-      makeEntry("a.md", "frontmatter"),
-      makeEntry("b.md", "cache"),
-      makeEntry("c.md", "llm"),
-      makeEntry("d.md", "heuristic"),
-    ];
-    const candidates = entries.filter(isCandidate);
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0].relativePath).toBe("d.md");
-  });
-});
+test.each(["", "auth.md"])(
+  "cached heuristic docs remain eligible for LLM upgrade (path=%s)",
+  async (path) => {
+    const root = mkdtempSync(join(tmpdir(), "pi-command-test-"));
+    roots.push(root);
+    mkdirSync(join(root, "docs"));
+    writeFileSync(
+      join(root, "docs", "auth.md"),
+      "# Authentication\nLogin instructions.",
+    );
+    writeFileSync(
+      join(root, "docs", "explicit.md"),
+      "---\nkeywords: [explicit]\n---\nExplicit doc.",
+    );
+    const config = { ...DEFAULT_CONFIG, mode: "keywords" as const };
+    const notifier = { warn() {}, info() {}, error() {}, setContext() {} };
+    const registry = await DocRegistry.create(
+      join(root, "docs"),
+      config,
+      undefined,
+      notifier,
+    );
+    const files = registry.getDirtyCache();
+    registry.updateCache({ version: 1, files });
+    await registry.rebuild();
+    expect(
+      registry.getEntries().find((entry) => entry.relativePath === "auth.md")
+        ?.keywordSource,
+    ).toBe("cache");
+    const commands = new Map<string, any>();
+    const generate = vi.fn();
+    registerCommands(
+      {
+        registerCommand(name: string, command: any) {
+          commands.set(name, command);
+        },
+      } as any,
+      {
+        getRegistry: () => registry,
+        getEnabled: () => true,
+        setEnabled() {},
+        reloadRegistry: async () => registry.getEntries().length,
+        getConfig: () => config,
+        generateKeywordsLLM: generate,
+      },
+    );
+    await commands
+      .get("doc-keywords-gen")
+      .handler(path, { ui: { notify: vi.fn() } });
+    expect(generate).toHaveBeenCalledOnce();
+    expect(generate.mock.calls[0][0].map((file: any) => file.path)).toEqual([
+      "auth.md",
+    ]);
+    registry.updateCache({
+      version: 1,
+      files: { "auth.md": { mtimeMs: -1, keywords: ["login"] } },
+    });
+    await registry.rebuild();
+    generate.mockClear();
+    await commands
+      .get("doc-keywords-gen")
+      .handler(path, { ui: { notify: vi.fn() } });
+    expect(generate).not.toHaveBeenCalled();
+  },
+);
