@@ -92,4 +92,22 @@ describe("createGlobFilter", () => {
     expect(filter.match("readme.md")).toBe(false);
     expect(filter.match("docs/guides/api.md")).toBe(true);
   });
+
+  test("matches literal # filenames and supports leading negation", () => {
+    const filter = createGlobFilter(["#README.md", "!private/**"], []);
+    expect(filter.match("#README.md")).toBe(true);
+    expect(filter.match("public.md")).toBe(true);
+    expect(filter.match("private/secret.md")).toBe(false);
+  });
+
+  test("supports negative extglob patterns", () => {
+    const filter = createGlobFilter(["**/!(*.draft).md"], []);
+    expect(filter.match("docs/guide.md")).toBe(true);
+    expect(filter.match("docs/guide.draft.md")).toBe(false);
+  });
+
+  test("matches nonmatching repeated single-branch extglobs", () => {
+    const filter = createGlobFilter(["+(*a)"], []);
+    expect(filter.match(`${"a".repeat(24)}b`)).toBe(false);
+  });
 });
