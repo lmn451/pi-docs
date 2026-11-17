@@ -1,20 +1,29 @@
 /**
  * Pi extension that selects project docs from user input or assistant text/thinking.
  * The default matcher uses docs/{name}.md; keyword matching is opt-in.
- * Matches from assistant output wait until the next agent run. We never abort
- * a response or send a synthetic user message to restart it.
+ * Simple assistant matches inject at the completed turn boundary, with at most
+ * one doc-triggered continuation per user run. Keyword matches wait for the
+ * next run. Neither path aborts or sends a synthetic user message.
  *
- * Injection returns a CustomMessage from before_agent_start. The system prompt
- * is not changed. Registry flags and the matcher both prevent repeat injection.
+ * Injection uses CustomMessages from before_agent_start or turn_end drafts.
+ * The system prompt is not changed.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { resolve } from "node:path";
 import { loadCache, saveCache } from "./cache";
 import { loadConfig } from "./config";
+import {
+  type InjectionAuditDetails,
+  type InjectionMatchSource,
+  type InjectionTrigger,
+} from "./audit";
 import { buildInjectionContent, notifyInjection } from "./injector";
 import { buildKeywordGenPrompt } from "./keyword-llm";
-import { extractText, KeywordMatcher } from "./matcher";
+import { extractText, extractTextBlocks, KeywordMatcher } from "./matcher";
 import { ExtensionNotifier, type Notifier } from "./notifier";
 import { DocRegistry } from "./registry";
 import {
@@ -37,13 +46,41 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   let registry: DocRegistry | null = null;
   let initRegistryPromise: Promise<void> | null = null;
   let enabled = true;
-  let textBuffer = "";
+  let continuedForDocs = false;
+  let continuationLimitNotified = false;
   let pendingMatches = new Map<string, string[]>(); // filePath → matchedKeywords (docs that met the threshold)
+  // filePath → source → distinct matched terms that caused the pending match.
+  let pendingReasons = new Map<
+    string,
+    Map<InjectionMatchSource, Set<string>>
+  >();
   // filePath → distinct keywords seen so far in the CURRENT streaming message.
   // The streaming matcher scans only a rolling tail window each chunk, so a
   // keyword can scroll out of the window before another appears. Accumulating
   // the union here lets matchThreshold be met across chunks; reset at message_end.
   let streamHits = new Map<string, Set<string>>();
+  const clearPendingMatches = () => {
+    pendingMatches.clear();
+    pendingReasons.clear();
+  };
+
+  const recordPendingReason = (
+    entry: DocEntry,
+    source: InjectionMatchSource,
+    matchedKeywords: Iterable<string>,
+  ) => {
+    let reasons = pendingReasons.get(entry.filePath);
+    if (!reasons) {
+      reasons = new Map();
+      pendingReasons.set(entry.filePath, reasons);
+    }
+    let terms = reasons.get(source);
+    if (!terms) {
+      terms = new Set();
+      reasons.set(source, terms);
+    }
+    for (const keyword of matchedKeywords) terms.add(keyword);
+  };
 
   // P5.4b — Guard flags for LLM keyword generation
   let keywordGenInFlight = false;
@@ -174,9 +211,10 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     keywordGenInFlight = false;
     llmBatchesCompleted = 0;
     llmTotalFiles = 0;
-    pendingMatches.clear();
+    clearPendingMatches();
     streamHits.clear();
-    textBuffer = "";
+    continuedForDocs = false;
+    continuationLimitNotified = false;
 
     // Bind the notifier to the live context FIRST so any warnings emitted
     // during initRegistry below go directly to the TUI instead of being
@@ -248,13 +286,13 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     const results = matcher.match(event.text);
     for (const result of results) {
       pendingMatches.set(result.entry.filePath, result.matchedKeywords);
+      recordPendingReason(result.entry, "input", result.matchedKeywords);
     }
   });
-
-  // Assistant text and thinking are recorded for the next agent run.
-  // Do not abort an active response or send a synthetic user message.
+  // Keyword mode retains its streaming tail and distinct-keyword accumulation.
+  // Simple mode scans only finalized blocks at turn_end, never chunk prefixes.
   pi.on("message_update", async (event, _ctx) => {
-    if (keywordGenInFlight) return;
+    if (keywordGenInFlight || config.mode !== "keywords") return;
 
     if (!enabled || !registry) return;
 
@@ -262,7 +300,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     if (msg.role !== "assistant") return;
 
     const content = (msg as unknown as { content: unknown }).content;
-    textBuffer = extractText(content);
+    const textBuffer = extractText(content);
     if (!textBuffer) return;
 
     // Discovery matcher: threshold 1 finds any keyword present in the rolling
@@ -282,9 +320,11 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       for (const kw of result.matchedKeywords) seen.add(kw);
       streamHits.set(filePath, seen);
 
-      const threshold = config.mode === "simple" ? 1 : config.matchThreshold;
-      if (seen.size >= threshold && !pendingMatches.has(filePath)) {
-        pendingMatches.set(filePath, [...seen]);
+      if (seen.size >= config.matchThreshold) {
+        if (!pendingMatches.has(filePath)) {
+          pendingMatches.set(filePath, [...seen]);
+        }
+        recordPendingReason(result.entry, "assistant", seen);
       }
     }
   });
@@ -294,21 +334,26 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     streamHits.clear();
   });
 
-  // Inject as a CustomMessage. The system prompt stays unchanged.
-  pi.on("before_agent_start", async (event, ctx) => {
-    // P5.4b — Guard: skip injection during LLM keyword generation
+  const prepareInjection = (
+    ctx: ExtensionContext,
+    boundary: InjectionAuditDetails["boundary"],
+  ): { content: string; details: InjectionAuditDetails } | undefined => {
     if (keywordGenInFlight) return;
 
-    if (!enabled || !registry || pendingMatches.size === 0) return;
+    if (!enabled || !registry) return;
+    if (pendingMatches.size === 0) {
+      pendingReasons.clear();
+      return;
+    }
 
     const matchedEntries: DocEntry[] = [];
     for (const [filePath] of pendingMatches) {
       const entry = registry.getEntries().find((e) => e.filePath === filePath);
-      if (entry) matchedEntries.push(entry);
+      if (entry && !entry.injected) matchedEntries.push(entry);
     }
 
     if (matchedEntries.length === 0) {
-      pendingMatches.clear();
+      clearPendingMatches();
       return;
     }
 
@@ -323,31 +368,126 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       usage.percent &&
       usage.percent > config.contextThreshold
     ) {
-      pendingMatches.clear();
+      clearPendingMatches();
+      ctx.ui.notify(
+        `Doc injection skipped: context usage exceeds ${config.contextThreshold}%.`,
+        "warning",
+      );
+      return;
+    }
+
+    const documents = matchedEntries.map((entry) => {
+      const reasons = pendingReasons.get(entry.filePath);
+      const triggers: InjectionTrigger[] = [];
+      if (reasons) {
+        for (const [source, keywords] of reasons) {
+          if (keywords.size > 0) {
+            triggers.push({
+              source,
+              matchedKeywords: [...keywords],
+            });
+          }
+        }
+      }
+      return {
+        relativePath: entry.relativePath,
+        keywordSource: entry.keywordSource,
+        triggers,
+      };
+    });
+    if (documents.some((document) => document.triggers.length === 0)) {
+      clearPendingMatches();
       return;
     }
 
     const content = buildInjectionContent(matchedEntries, pendingMatches);
+    const details: InjectionAuditDetails = {
+      version: 1,
+      mode: config.mode,
+      boundary,
+      documents,
+    };
 
-    // Mark as injected only after confirming injection will happen.
-    // This is the second half of the double-injection guard: even if the
-    // matcher ever produced a duplicate match, markInjected prevents a
-    // second send.
-    registry.markInjected(matchedEntries.map((e) => e.filePath));
-
-    // Notify user about injection (moved here from message_end so it fires
-    // even when matches come from user messages, which get cleared before
-    // the assistant's message_end)
     notifyInjection(ctx.ui, matchedEntries, pendingMatches);
 
-    pendingMatches.clear();
+    // Pi exposes no post-commit callback for returned messages/drafts. Mark
+    // only after preparation succeeds, immediately before proposing them.
+    registry.markInjected(matchedEntries.map((e) => e.filePath));
+    clearPendingMatches();
+    return { content, details };
+  };
+
+  // Preserve user-input injection before the first provider request.
+  pi.on("before_agent_start", async (event, ctx) => {
+    // Low-level agent starts/retries must not replenish the continuation cap.
+    if (event.messageType === "user") {
+      continuedForDocs = false;
+      continuationLimitNotified = false;
+    }
+
+    const prepared = prepareInjection(ctx, "before_agent_start");
+    if (!prepared) return;
 
     return {
       message: {
         customType: "doc-injector",
-        content,
+        content: prepared.content,
         display: true,
+        details: prepared.details,
       },
+    };
+  });
+
+  pi.on("turn_end", async (event, ctx) => {
+    if (
+      config.mode !== "simple" ||
+      keywordGenInFlight ||
+      !enabled ||
+      !registry ||
+      event.outcome !== "completed" ||
+      event.message.role !== "assistant"
+    )
+      return;
+
+    // The assistant and tools are already persisted. Scan every completed
+    // thinking/text block in full, independently, without a sliding window.
+    const matcher = buildMatcher();
+    if (!matcher) return;
+    for (const block of extractTextBlocks(event.message.content)) {
+      for (const result of matcher.match(block)) {
+        pendingMatches.set(result.entry.filePath, result.matchedKeywords);
+        recordPendingReason(result.entry, "assistant", result.matchedKeywords);
+      }
+    }
+    if (pendingMatches.size === 0) return;
+
+    if (continuedForDocs) {
+      if (!continuationLimitNotified) {
+        ctx.ui.notify(
+          "Doc continuation limit reached; additional matching docs will wait for the next user run.",
+          "info",
+        );
+        continuationLimitNotified = true;
+      }
+      return;
+    }
+
+    const prepared = prepareInjection(ctx, "turn_end");
+    if (!prepared) return;
+    continuedForDocs = true;
+    return {
+      entries: [
+        ...event.entries,
+        {
+          type: "custom_message" as const,
+          customType: "doc-injector",
+          content: `${prepared.content}\nContinue the user's current task using these documents as reference.`,
+          display: true,
+          details: { ...prepared.details, turnIndex: event.turnIndex },
+        },
+      ],
+      // Natural tool/steering continuation satisfies this same next request.
+      continue: true,
     };
   });
 

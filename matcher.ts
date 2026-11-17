@@ -10,11 +10,16 @@ import { DEFAULT_MATCHER_OPTIONS } from "./types";
  * - Content array with text/thinking blocks
  */
 export function extractText(content: unknown): string {
+  return extractTextBlocks(content).join("\n");
+}
+
+/** Keep completed blocks separate so matching cannot manufacture cross-block hits. */
+export function extractTextBlocks(content: unknown): string[] {
   if (typeof content === "string") {
-    return content;
+    return [content];
   }
   if (!Array.isArray(content)) {
-    return "";
+    return [];
   }
 
   const parts: string[] = [];
@@ -27,7 +32,7 @@ export function extractText(content: unknown): string {
       parts.push(b.thinking);
     }
   }
-  return parts.join("\n");
+  return parts;
 }
 
 /** Characters treated as part of a "word" for boundary detection. */
