@@ -5,7 +5,7 @@
 import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -794,6 +794,95 @@ Added after initial load.
     // Should report 1 saved (not 2)
     const text = result.content[0].text;
     expect(text).toContain("1"); // Only 1 file saved, not 2
+  });
+
+  test("LLM keyword writes preserve heuristic cache entries", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(
+      api as unknown as Parameters<typeof docInjectorExtension>[0],
+    );
+    await triggerSessionStart(api);
+
+    const cachePath = resolve(
+      api._sessionCtx.cwd,
+      ".pi/doc-injector-cache.json",
+    );
+    const before = JSON.parse(readFileSync(cachePath, "utf-8"));
+    const heuristicEntry = before.files["no-frontmatter.md"];
+    expect(heuristicEntry).toBeDefined();
+    expect(heuristicEntry.mtimeMs).not.toBe(-1);
+
+    const tool = api._tools.get("_doc_injector_keywords");
+    expect(tool).toBeDefined();
+
+    await tool!.execute(
+      "tool-call-id",
+      { keywords: [{ path: "testing-guide.md", keywords: ["from-llm"] }] },
+      undefined,
+      undefined,
+      api._sessionCtx,
+    );
+
+    const after = JSON.parse(readFileSync(cachePath, "utf-8"));
+    expect(after.files["no-frontmatter.md"]).toEqual(heuristicEntry);
+    expect(after.files["testing-guide.md"]).toEqual({
+      mtimeMs: -1,
+      keywords: ["from-llm"],
+    });
+  });
+  test("concurrent LLM keyword writes retain both docs and heuristic cache entries", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(
+      api as unknown as Parameters<typeof docInjectorExtension>[0],
+    );
+    await triggerSessionStart(api);
+
+    const cachePath = resolve(
+      api._sessionCtx.cwd,
+      ".pi/doc-injector-cache.json",
+    );
+    const before = JSON.parse(readFileSync(cachePath, "utf-8"));
+    const heuristicEntry = before.files["no-frontmatter.md"];
+    expect(heuristicEntry).toBeDefined();
+    expect(heuristicEntry.mtimeMs).not.toBe(-1);
+
+    const tool = api._tools.get("_doc_injector_keywords");
+    expect(tool).toBeDefined();
+
+    const results = await Promise.all([
+      tool!.execute(
+        "parallel-first-call",
+        {
+          keywords: [{ path: "testing-guide.md", keywords: ["parallelfirst"] }],
+        },
+        undefined,
+        undefined,
+        api._sessionCtx,
+      ),
+      tool!.execute(
+        "parallel-second-call",
+        {
+          keywords: [{ path: "workflow.md", keywords: ["parallelsecond"] }],
+        },
+        undefined,
+        undefined,
+        api._sessionCtx,
+      ),
+    ]);
+
+    expect(results[0].content[0].text).toBe("Keywords saved for 1 files.");
+    expect(results[1].content[0].text).toBe("Keywords saved for 1 files.");
+
+    const after = JSON.parse(readFileSync(cachePath, "utf-8"));
+    expect(after.files["no-frontmatter.md"]).toEqual(heuristicEntry);
+    expect(after.files["testing-guide.md"]).toEqual({
+      mtimeMs: -1,
+      keywords: ["parallelfirst"],
+    });
+    expect(after.files["workflow.md"]).toEqual({
+      mtimeMs: -1,
+      keywords: ["parallelsecond"],
+    });
   });
 });
 

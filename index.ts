@@ -14,7 +14,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { resolve } from "node:path";
-import { loadCache, saveCache } from "./cache";
+import { loadCache, mergeAndSaveCache } from "./cache";
 import { loadConfig } from "./config";
 import {
   type InjectionAuditDetails,
@@ -96,28 +96,6 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   };
   const getConfig = () => config;
 
-  const safeSaveCache = async (
-    cwd: string,
-    dirtyEntries: Record<string, CacheEntry>,
-  ) => {
-    // MAJOR-2 fix: before saveCache, re-read cache from disk to merge
-    // LLM-written entries that may have landed during the scan.
-    const freshCache = await loadCache(cwd, notifier);
-    const mergedCache: KeywordCache = { version: 1, files: {} };
-
-    // Start with fresh (disk) entries — includes any LLM writes during scan
-    for (const [key, entry] of Object.entries(freshCache.files)) {
-      mergedCache.files[key] = entry;
-    }
-
-    // Overlay dirty entries from this scan (scan results take precedence)
-    for (const [key, entry] of Object.entries(dirtyEntries)) {
-      mergedCache.files[key] = entry;
-    }
-
-    await saveCache(cwd, mergedCache);
-  };
-
   const initRegistry = async (cwd: string) => {
     config = await loadConfig(cwd, notifier);
     const docsPath = resolve(cwd, config.docsPath);
@@ -129,7 +107,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
 
     const dirty = registry.getDirtyCache();
     if (Object.keys(dirty).length > 0) {
-      await safeSaveCache(cwd, dirty);
+      await mergeAndSaveCache(cwd, dirty, notifier);
     }
   };
 
@@ -155,8 +133,6 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   };
 
   // P5.4a — Inline tool registration (BLOCKER-2 fix).
-  // Registered inside the factory for closure access to cache, cwd, saveCache,
-  // and llmBatchesCompleted. Uses real mtime from stat().
   pi.registerTool({
     name: "_doc_injector_keywords",
     label: "Doc Injector Keywords",
@@ -177,6 +153,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       }>;
       const { stat } = await import("node:fs/promises");
       let saved = 0;
+      const dirtyEntries: Record<string, CacheEntry> = {};
       for (const item of generated) {
         // Only documents in the registry may receive generated keywords.
         const entry = registry
@@ -185,13 +162,15 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
         if (config.mode !== "keywords" || !entry) continue;
         const fileStat = await stat(entry.filePath).catch(() => null);
         if (!fileStat?.isFile()) continue;
-        cache.files[item.path] = {
+        dirtyEntries[item.path] = {
           mtimeMs: LLM_CACHE_SENTINEL,
           keywords: item.keywords.map((k) => k.toLowerCase()).slice(0, 20),
         };
         saved++;
       }
-      if (saved > 0) await saveCache(ctx.cwd, cache);
+      if (saved > 0) {
+        await mergeAndSaveCache(ctx.cwd, dirtyEntries, notifier);
+      }
       llmBatchesCompleted++;
       llmTotalFiles += saved;
       return {
@@ -248,7 +227,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
 
     const dirty = registry.getDirtyCache();
     if (Object.keys(dirty).length > 0) {
-      await safeSaveCache(effectiveCwd, dirty);
+      await mergeAndSaveCache(effectiveCwd, dirty, notifier);
     }
 
     const count = registry.getEntries().length;
