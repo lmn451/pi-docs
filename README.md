@@ -80,6 +80,23 @@ The history is newest-first and has one record per document in each saved inject
 
 Reason metadata is versioned and stored in `details` on the existing Pi custom messages; it does not duplicate document bodies or write a separate `debug.log`. The history reflects saved injection messages, not an acknowledgement that the model received or read the documents. It is read from native current-branch session history on each command, so it survives extension reload; in-memory injection marks are separate and are rebuilt on reload. Older injection messages without usable reasons metadata are reported unavailable by the command rather than assigned guessed reasons.
 
+## Documentation authoring skill
+
+The repository includes `skills/doc-authoring/SKILL.md` for creating and
+validating docs folders. It defaults to top-level filename matching, supports
+opt-in keyword mode, and checks file eligibility, sizes, links, and runtime
+registration without resetting injection state automatically.
+
+To install it globally from a repository checkout:
+
+```bash
+mkdir -p ~/.pi/agent/skills/doc-authoring
+cp skills/doc-authoring/SKILL.md ~/.pi/agent/skills/doc-authoring/SKILL.md
+```
+
+Run `/reload` in an active Pi session, then use
+`/skill:doc-authoring create or validate this project's docs folder`.
+
 ## Development
 
 ```bash
