@@ -8,3 +8,7 @@ test/integration/.pi/
 
 # Planning artifacts
 plan/
+
+# Local dependencies and agent scratch files
+node_modules/
+.context/

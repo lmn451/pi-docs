@@ -1,6 +1,6 @@
 /**
  * Context Injector — formats matched docs into a content string suitable for
- * injection as a `CustomMessage` (returned from `before_agent_start`) and
+ * injection as a `CustomMessage` (from `before_agent_start` or `turn_end`) and
  * sends TUI notifications.
  *
  * The produced content is delivered to the LLM as a `CustomMessage` rather
@@ -35,7 +35,7 @@ function sanitizeKeywords(keywords: string[]): string[] {
 /**
  * Build the content string for a `CustomMessage` injection from matched
  * documents. This is the payload that gets returned in
- * `before_agent_start`'s `message.content` and sent to the LLM.
+ * `before_agent_start`'s `message.content` or a `turn_end` entry draft.
  */
 export function buildInjectionContent(
   entries: DocEntry[],
