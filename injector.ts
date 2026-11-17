@@ -62,6 +62,9 @@ export function formatInjectionHistory(
 
     for (let index = total - 1; index >= total - shown; index--) {
       const record = history.records[index];
+      if (record === undefined) {
+        throw new Error("Injection history must not contain empty records");
+      }
       formatInjectionHistoryRecord(record, lines);
       if (index > total - shown) lines.push("");
     }

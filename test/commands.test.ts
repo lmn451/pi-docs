@@ -12,7 +12,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG, type DocEntry, type KeywordSource } from "../types";
 import { DocRegistry } from "../registry";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 type AuditEntryOptions = {
   timestamp?: string;
@@ -69,10 +69,10 @@ function makeDocInjectHandler() {
   const deps: CommandDeps = {
     getRegistry: () => null,
     getEnabled: () => true,
-    setEnabled: () => { },
+    setEnabled: () => {},
     reloadRegistry: async () => 0,
     getConfig: () => DEFAULT_CONFIG,
-    generateKeywordsLLM: async () => { },
+    generateKeywordsLLM: async () => {},
   };
   registerCommands(pi, deps);
   const handler = handlers.get("doc-inject");
@@ -240,7 +240,7 @@ test.each(["", "auth.md"])(
       "---\nkeywords: [explicit]\n---\nExplicit doc.",
     );
     const config = { ...DEFAULT_CONFIG, mode: "keywords" as const };
-    const notifier = { warn() { }, info() { }, error() { }, setContext() { } };
+    const notifier = { warn() {}, info() {}, error() {}, setContext() {} };
     const registry = await DocRegistry.create(
       join(root, "docs"),
       config,
@@ -265,7 +265,7 @@ test.each(["", "auth.md"])(
       {
         getRegistry: () => registry,
         getEnabled: () => true,
-        setEnabled() { },
+        setEnabled() {},
         reloadRegistry: async () => registry.getEntries().length,
         getConfig: () => config,
         generateKeywordsLLM: generate,
