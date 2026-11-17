@@ -1263,10 +1263,10 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
 
     const msg = (
       r as
-      | {
-        message?: { customType: string; content: string; display: boolean };
-      }
-      | undefined
+        | {
+            message?: { customType: string; content: string; display: boolean };
+          }
+        | undefined
     )?.message;
     expect(msg).toBeDefined();
     expect(msg?.customType).toBe("doc-injector");
@@ -1329,8 +1329,8 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
     expect(
       (
         (await triggerAgentStart(api, "x")) as
-        | { message?: { content: string } }
-        | undefined
+          | { message?: { content: string } }
+          | undefined
       )?.message,
     ).toBeUndefined();
   });
