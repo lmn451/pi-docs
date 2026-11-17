@@ -45,6 +45,8 @@ Optional `.pi/doc-injector.json` in your project:
 
 Set `"mode": "keywords"` to use frontmatter keywords, heuristic keyword generation, or optional LLM keyword generation. It also supports nested docs and `.txt` files. The existing `matchThreshold` (default: 2), `streamWindowSize` (default: 500), `recursive`, `autoKeywords`, `llmKeywords`, and `llmBatchSize` settings apply to this mode. Keyword-mode assistant matches still accumulate across streaming updates and wait for the next agent run; they do not request same-run continuation. Neither mode aborts an active response. `streamWindowSize` and `matchThreshold` do not affect simple matching.
 
+Cache writes merge under Pi's per-file mutation queue for heuristic and LLM updates. This coordinates writers only within the Pi process; it is not a cross-process lock or an atomic filesystem transaction.
+
 Example doc:
 
 ```md

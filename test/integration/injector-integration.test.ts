@@ -830,6 +830,60 @@ Added after initial load.
       keywords: ["from-llm"],
     });
   });
+  test("concurrent LLM keyword writes retain both docs and heuristic cache entries", async () => {
+    const api = createMockAPI();
+    await docInjectorExtension(
+      api as unknown as Parameters<typeof docInjectorExtension>[0],
+    );
+    await triggerSessionStart(api);
+
+    const cachePath = resolve(
+      api._sessionCtx.cwd,
+      ".pi/doc-injector-cache.json",
+    );
+    const before = JSON.parse(readFileSync(cachePath, "utf-8"));
+    const heuristicEntry = before.files["no-frontmatter.md"];
+    expect(heuristicEntry).toBeDefined();
+    expect(heuristicEntry.mtimeMs).not.toBe(-1);
+
+    const tool = api._tools.get("_doc_injector_keywords");
+    expect(tool).toBeDefined();
+
+    const results = await Promise.all([
+      tool!.execute(
+        "parallel-first-call",
+        {
+          keywords: [{ path: "testing-guide.md", keywords: ["parallelfirst"] }],
+        },
+        undefined,
+        undefined,
+        api._sessionCtx,
+      ),
+      tool!.execute(
+        "parallel-second-call",
+        {
+          keywords: [{ path: "workflow.md", keywords: ["parallelsecond"] }],
+        },
+        undefined,
+        undefined,
+        api._sessionCtx,
+      ),
+    ]);
+
+    expect(results[0].content[0].text).toBe("Keywords saved for 1 files.");
+    expect(results[1].content[0].text).toBe("Keywords saved for 1 files.");
+
+    const after = JSON.parse(readFileSync(cachePath, "utf-8"));
+    expect(after.files["no-frontmatter.md"]).toEqual(heuristicEntry);
+    expect(after.files["testing-guide.md"]).toEqual({
+      mtimeMs: -1,
+      keywords: ["parallelfirst"],
+    });
+    expect(after.files["workflow.md"]).toEqual({
+      mtimeMs: -1,
+      keywords: ["parallelsecond"],
+    });
+  });
 });
 
 describe("Doc Injector Extension - Auto-Abort on Stream", () => {

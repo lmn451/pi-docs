@@ -6,9 +6,10 @@
  *
  * Invalid files (wrong version, bad JSON, ENOENT) result in an empty cache.
  */
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import type { KeywordCache } from "./types";
+import { dirname, join, resolve } from "node:path";
+import type { CacheEntry, KeywordCache } from "./types";
 import type { Notifier } from "./notifier";
 
 const CACHE_FILENAME = ".pi/doc-injector-cache.json";
@@ -69,6 +70,22 @@ export async function saveCache(
   }
 
   await writeFile(cachePath, JSON.stringify(cache, null, 2), "utf-8");
+}
+
+/**
+ * Merge dirty keyword entries into the latest on-disk cache and save it under
+ * Pi's per-file mutation queue.
+ */
+export async function mergeAndSaveCache(
+  cwd: string,
+  dirtyEntries: Record<string, CacheEntry>,
+  notifier: Notifier,
+): Promise<void> {
+  await withFileMutationQueue(resolve(cwd, CACHE_FILENAME), async () => {
+    const cache = await loadCache(cwd, notifier);
+    Object.assign(cache.files, dirtyEntries);
+    await saveCache(cwd, cache);
+  });
 }
 
 /** Check that a parsed value matches the KeywordCache shape. */
