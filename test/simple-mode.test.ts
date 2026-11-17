@@ -54,12 +54,13 @@ function setup() {
       result = await handler(data, ctx);
     return result as
       | {
-          message?: { content: string };
+          message?: { content: string; details?: unknown };
           entries?: Array<{
             type: string;
             customType: string;
             content: string;
             display: boolean;
+            details?: unknown;
           }>;
           continue?: boolean;
         }
@@ -89,6 +90,18 @@ test("default mode matches a whole filename stem in user input, without frontmat
     systemPrompt: "unchanged",
   });
   expect(injected).not.toHaveProperty("systemPrompt");
+  expect(injected?.message?.details).toEqual({
+    version: 1,
+    mode: "simple",
+    boundary: "before_agent_start",
+    documents: [
+      {
+        relativePath: "auth.md",
+        keywordSource: "filename",
+        triggers: [{ source: "input", matchedKeywords: ["auth"] }],
+      },
+    ],
+  });
   expect(injected?.message?.content).toContain("Important auth advice.");
   await emit("input", { source: "interactive", text: "auth again" });
   expect((await emit("before_agent_start", {}))?.message).toBeUndefined();
@@ -115,6 +128,23 @@ test("finished thinking and output inject at the same-run boundary without abort
     type: "custom_message",
     customType: "doc-injector",
     display: true,
+  });
+  expect(result?.entries?.[0].details).toEqual({
+    version: 1,
+    mode: "simple",
+    boundary: "turn_end",
+    documents: [
+      {
+        relativePath: "auth.md",
+        keywordSource: "filename",
+        triggers: [{ source: "assistant", matchedKeywords: ["auth"] }],
+      },
+      {
+        relativePath: "billing.md",
+        keywordSource: "filename",
+        triggers: [{ source: "assistant", matchedKeywords: ["billing"] }],
+      },
+    ],
   });
   expect(result?.entries?.[0].content).toContain("Important auth advice.");
   expect(result?.entries?.[0].content).toContain("Billing advice.");
@@ -272,10 +302,20 @@ test("only one boundary batch per user run; deferred matches survive no-match tu
   );
   expect(notices).toHaveLength(1);
   await emit("input", { text: "more please" });
-  expect(
-    (await emit("before_agent_start", { messageType: "user" }))?.message
-      ?.content,
-  ).toContain("Billing advice.");
+  const deferred = await emit("before_agent_start", { messageType: "user" });
+  expect(deferred?.message?.content).toContain("Billing advice.");
+  expect(deferred?.message?.details).toEqual({
+    version: 1,
+    mode: "simple",
+    boundary: "before_agent_start",
+    documents: [
+      {
+        relativePath: "billing.md",
+        keywordSource: "filename",
+        triggers: [{ source: "assistant", matchedKeywords: ["billing"] }],
+      },
+    ],
+  });
   expect(await emit("turn_end", turn("auth billing"))).toBeUndefined();
 });
 

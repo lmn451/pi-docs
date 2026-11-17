@@ -68,8 +68,17 @@ If a file has no frontmatter keywords, keyword mode generates search terms from 
 | `/doc-inject list`                | Show documents and injection state     |
 | `/doc-inject on`, `off`, `toggle` | Control injection                      |
 | `/doc-inject reset`               | Allow documents to be injected again   |
+| `/doc-inject history`             | Show saved injection history           |
 | `/doc-reload`                     | Re-scan the docs folder                |
 | `/doc-keywords-gen [path]`        | Generate keywords in keyword mode only |
+
+### Injection history
+
+`/doc-inject history` shows the latest 20 document records from the current native session branch. Use `/doc-inject history 5` for a positive count or `/doc-inject history all` for the full history. The output includes how many entries are shown out of the total. There is no keyboard shortcut; the slash command is the convenient entry point.
+
+The history is newest-first and has one record per document in each saved injection message. It shows the session entry's UTC persistence timestamp, relative document path, matching mode, keyword source (`filename`, `frontmatter`, `cache`, `llm`, or `heuristic`), matched terms grouped by `input` or `assistant` (text/thinking), injection boundary (`before_agent_start` or `turn_end`), and optional `turnIndex`.
+
+Reason metadata is versioned and stored in `details` on the existing Pi custom messages; it does not duplicate document bodies or write a separate `debug.log`. The history reflects saved injection messages, not an acknowledgement that the model received or read the documents. It is read from native current-branch session history on each command, so it survives extension reload; in-memory injection marks are separate and are rebuilt on reload. Older injection messages without usable reasons metadata are reported unavailable by the command rather than assigned guessed reasons.
 
 ## Development
 

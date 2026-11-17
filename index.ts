@@ -16,6 +16,11 @@ import { Type } from "typebox";
 import { resolve } from "node:path";
 import { loadCache, saveCache } from "./cache";
 import { loadConfig } from "./config";
+import {
+  type InjectionAuditDetails,
+  type InjectionMatchSource,
+  type InjectionTrigger,
+} from "./audit";
 import { buildInjectionContent, notifyInjection } from "./injector";
 import { buildKeywordGenPrompt } from "./keyword-llm";
 import { extractText, extractTextBlocks, KeywordMatcher } from "./matcher";
@@ -44,11 +49,38 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   let continuedForDocs = false;
   let continuationLimitNotified = false;
   let pendingMatches = new Map<string, string[]>(); // filePath → matchedKeywords (docs that met the threshold)
+  // filePath → source → distinct matched terms that caused the pending match.
+  let pendingReasons = new Map<
+    string,
+    Map<InjectionMatchSource, Set<string>>
+  >();
   // filePath → distinct keywords seen so far in the CURRENT streaming message.
   // The streaming matcher scans only a rolling tail window each chunk, so a
   // keyword can scroll out of the window before another appears. Accumulating
   // the union here lets matchThreshold be met across chunks; reset at message_end.
   let streamHits = new Map<string, Set<string>>();
+  const clearPendingMatches = () => {
+    pendingMatches.clear();
+    pendingReasons.clear();
+  };
+
+  const recordPendingReason = (
+    entry: DocEntry,
+    source: InjectionMatchSource,
+    matchedKeywords: Iterable<string>,
+  ) => {
+    let reasons = pendingReasons.get(entry.filePath);
+    if (!reasons) {
+      reasons = new Map();
+      pendingReasons.set(entry.filePath, reasons);
+    }
+    let terms = reasons.get(source);
+    if (!terms) {
+      terms = new Set();
+      reasons.set(source, terms);
+    }
+    for (const keyword of matchedKeywords) terms.add(keyword);
+  };
 
   // P5.4b — Guard flags for LLM keyword generation
   let keywordGenInFlight = false;
@@ -179,7 +211,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     keywordGenInFlight = false;
     llmBatchesCompleted = 0;
     llmTotalFiles = 0;
-    pendingMatches.clear();
+    clearPendingMatches();
     streamHits.clear();
     continuedForDocs = false;
     continuationLimitNotified = false;
@@ -254,9 +286,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     const results = matcher.match(event.text);
     for (const result of results) {
       pendingMatches.set(result.entry.filePath, result.matchedKeywords);
+      recordPendingReason(result.entry, "input", result.matchedKeywords);
     }
   });
-
   // Keyword mode retains its streaming tail and distinct-keyword accumulation.
   // Simple mode scans only finalized blocks at turn_end, never chunk prefixes.
   pi.on("message_update", async (event, _ctx) => {
@@ -288,8 +320,11 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       for (const kw of result.matchedKeywords) seen.add(kw);
       streamHits.set(filePath, seen);
 
-      if (seen.size >= config.matchThreshold && !pendingMatches.has(filePath)) {
-        pendingMatches.set(filePath, [...seen]);
+      if (seen.size >= config.matchThreshold) {
+        if (!pendingMatches.has(filePath)) {
+          pendingMatches.set(filePath, [...seen]);
+        }
+        recordPendingReason(result.entry, "assistant", seen);
       }
     }
   });
@@ -299,10 +334,17 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     streamHits.clear();
   });
 
-  const prepareInjection = (ctx: ExtensionContext) => {
+  const prepareInjection = (
+    ctx: ExtensionContext,
+    boundary: InjectionAuditDetails["boundary"],
+  ): { content: string; details: InjectionAuditDetails } | undefined => {
     if (keywordGenInFlight) return;
 
-    if (!enabled || !registry || pendingMatches.size === 0) return;
+    if (!enabled || !registry) return;
+    if (pendingMatches.size === 0) {
+      pendingReasons.clear();
+      return;
+    }
 
     const matchedEntries: DocEntry[] = [];
     for (const [filePath] of pendingMatches) {
@@ -311,7 +353,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
 
     if (matchedEntries.length === 0) {
-      pendingMatches.clear();
+      clearPendingMatches();
       return;
     }
 
@@ -326,7 +368,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       usage.percent &&
       usage.percent > config.contextThreshold
     ) {
-      pendingMatches.clear();
+      clearPendingMatches();
       ctx.ui.notify(
         `Doc injection skipped: context usage exceeds ${config.contextThreshold}%.`,
         "warning",
@@ -334,15 +376,45 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       return;
     }
 
+    const documents = matchedEntries.map((entry) => {
+      const reasons = pendingReasons.get(entry.filePath);
+      const triggers: InjectionTrigger[] = [];
+      if (reasons) {
+        for (const [source, keywords] of reasons) {
+          if (keywords.size > 0) {
+            triggers.push({
+              source,
+              matchedKeywords: [...keywords],
+            });
+          }
+        }
+      }
+      return {
+        relativePath: entry.relativePath,
+        keywordSource: entry.keywordSource,
+        triggers,
+      };
+    });
+    if (documents.some((document) => document.triggers.length === 0)) {
+      clearPendingMatches();
+      return;
+    }
+
     const content = buildInjectionContent(matchedEntries, pendingMatches);
+    const details: InjectionAuditDetails = {
+      version: 1,
+      mode: config.mode,
+      boundary,
+      documents,
+    };
 
     notifyInjection(ctx.ui, matchedEntries, pendingMatches);
 
     // Pi exposes no post-commit callback for returned messages/drafts. Mark
     // only after preparation succeeds, immediately before proposing them.
     registry.markInjected(matchedEntries.map((e) => e.filePath));
-    pendingMatches.clear();
-    return content;
+    clearPendingMatches();
+    return { content, details };
   };
 
   // Preserve user-input injection before the first provider request.
@@ -353,14 +425,15 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       continuationLimitNotified = false;
     }
 
-    const content = prepareInjection(ctx);
-    if (!content) return;
+    const prepared = prepareInjection(ctx, "before_agent_start");
+    if (!prepared) return;
 
     return {
       message: {
         customType: "doc-injector",
-        content,
+        content: prepared.content,
         display: true,
+        details: prepared.details,
       },
     };
   });
@@ -383,6 +456,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     for (const block of extractTextBlocks(event.message.content)) {
       for (const result of matcher.match(block)) {
         pendingMatches.set(result.entry.filePath, result.matchedKeywords);
+        recordPendingReason(result.entry, "assistant", result.matchedKeywords);
       }
     }
     if (pendingMatches.size === 0) return;
@@ -398,8 +472,8 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       return;
     }
 
-    const content = prepareInjection(ctx);
-    if (!content) return;
+    const prepared = prepareInjection(ctx, "turn_end");
+    if (!prepared) return;
     continuedForDocs = true;
     return {
       entries: [
@@ -407,8 +481,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
         {
           type: "custom_message" as const,
           customType: "doc-injector",
-          content: `${content}\nContinue the user's current task using these documents as reference.`,
+          content: `${prepared.content}\nContinue the user's current task using these documents as reference.`,
           display: true,
+          details: { ...prepared.details, turnIndex: event.turnIndex },
         },
       ],
       // Natural tool/steering continuation satisfies this same next request.
