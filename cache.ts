@@ -9,7 +9,11 @@
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import type { CacheEntry, KeywordCache } from "./types";
+import {
+  LLM_CACHE_SENTINEL,
+  type CacheEntry,
+  type KeywordCache,
+} from "./types";
 import type { Notifier } from "./notifier";
 
 const CACHE_FILENAME = ".pi/doc-injector-cache.json";
@@ -83,7 +87,16 @@ export async function mergeAndSaveCache(
 ): Promise<void> {
   await withFileMutationQueue(resolve(cwd, CACHE_FILENAME), async () => {
     const cache = await loadCache(cwd, notifier);
-    Object.assign(cache.files, dirtyEntries);
+    for (const [path, entry] of Object.entries(dirtyEntries)) {
+      const current = cache.files[path];
+      if (
+        current?.mtimeMs === LLM_CACHE_SENTINEL &&
+        entry.mtimeMs !== LLM_CACHE_SENTINEL
+      ) {
+        continue;
+      }
+      cache.files[path] = entry;
+    }
     await saveCache(cwd, cache);
   });
 }

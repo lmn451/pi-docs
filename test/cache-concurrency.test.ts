@@ -98,6 +98,23 @@ afterEach(() => {
 });
 
 describe("mergeAndSaveCache concurrency", () => {
+  test("preserves a newer LLM entry over a stale scan result", async () => {
+    const llmEntry: CacheEntry = {
+      mtimeMs: LLM_CACHE_SENTINEL,
+      keywords: ["new-llm-keyword"],
+    };
+    writeInitialCache({ "guide.md": llmEntry });
+
+    await mergeAndSaveCache(
+      testCwd,
+      { "guide.md": heuristicEntry },
+      silentNotifier,
+    );
+
+    const cache = JSON.parse(readFileSync(fsMockState.cachePath, "utf-8"));
+    expect(cache.files["guide.md"]).toEqual(llmEntry);
+  });
+
   test("merges overlapping updates from fresh disk state without losing heuristic entries", async () => {
     writeInitialCache({ "heuristic.md": heuristicEntry });
     const { promise: mkdirEntered, resolve: signalMkdirEntered } =
