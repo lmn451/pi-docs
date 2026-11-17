@@ -35,10 +35,10 @@ We follow [Semantic Versioning](https://semver.org/):
 ## Release Process
 
 ```bash
-# 1. Edit version in package.json (e.g., 0.1.1 → 0.1.2)
+# 1. Set the same version in package.json and the root package entry in package-lock.json
 
 # 2. Commit, tag, and push
-git add package.json
+git add package.json package-lock.json
 git commit -m "chore: bump version to X.Y.Z"
 git tag vX.Y.Z
 git push origin master
