@@ -1,6 +1,33 @@
-import { buildInjectionContent, notifyInjection } from "../injector";
+import {
+  buildInjectionContent,
+  formatInjectionHistory,
+  notifyInjection,
+} from "../injector";
+import type { InjectionHistory, InjectionHistoryRecord } from "../audit";
 import type { DocEntry } from "../types";
 import { describe, expect, test } from "vitest";
+
+const makeHistoryRecord = (
+  overrides: Partial<InjectionHistoryRecord> = {},
+): InjectionHistoryRecord => ({
+  timestamp: "2025-03-04T05:06:07.000Z",
+  entryId: "entry-1",
+  mode: "keywords",
+  boundary: "turn_end",
+  turnIndex: 7,
+  relativePath: "guides/auth.md",
+  keywordSource: "frontmatter",
+  triggers: [
+    { source: "input", matchedKeywords: ["auth"] },
+    { source: "assistant", matchedKeywords: ["login"] },
+  ],
+  ...overrides,
+});
+
+const makeHistory = (
+  records: InjectionHistoryRecord[],
+  unavailableMessages = 0,
+): InjectionHistory => ({ records, unavailableMessages });
 
 const makeEntry = (
   name: string,
@@ -105,5 +132,61 @@ describe("notifyInjection", () => {
 
     notifyInjection(mockUi, [e1, e2], map);
     expect(notifications).toHaveLength(2);
+  });
+});
+
+describe("formatInjectionHistory", () => {
+  test("formats UTC timing and sanitizes displayed match terms", () => {
+    const longKeyword = "x".repeat(101);
+    const history = makeHistory([
+      makeHistoryRecord({
+        triggers: [
+          {
+            source: "input",
+            matchedKeywords: [" auth\n bypass ", longKeyword],
+          },
+          {
+            source: "assistant",
+            matchedKeywords: Array.from(
+              { length: 21 },
+              (_, index) => `term-${index}`,
+            ),
+          },
+        ],
+      }),
+    ]);
+
+    const output = formatInjectionHistory(history);
+    expect(output).toContain("2025-03-04T05:06:07.000Z");
+    expect(output).toContain("guides/auth.md");
+    expect(output).toMatch(/input: auth +bypass/);
+    expect(output).toContain("x".repeat(100));
+    expect(output).not.toContain(longKeyword);
+    expect(output).toContain("assistant: term-0");
+    expect(output).toContain("term-19");
+    expect(output).not.toContain("term-20");
+  });
+
+  test("shows the newest records first and allows all records", () => {
+    const records = Array.from({ length: 22 }, (_, index) =>
+      makeHistoryRecord({
+        entryId: `entry-${index}`,
+        timestamp: new Date(Date.UTC(2025, 0, 1, 0, 0, index)).toISOString(),
+        relativePath: `docs/${index}.md`,
+      }),
+    );
+    const history = makeHistory(records);
+
+    const recent = formatInjectionHistory(history);
+    expect(recent).toContain("Showing 20 of 22");
+    expect(recent.indexOf("docs/21.md")).toBeLessThan(
+      recent.indexOf("docs/2.md"),
+    );
+    expect(recent).not.toContain("docs/1.md");
+
+    const all = formatInjectionHistory(history, "all");
+    expect(all).toContain("Showing 22 of 22");
+    expect(all).toContain("docs/0.md");
+    expect(all).not.toContain("Older records are omitted");
   });
 });
