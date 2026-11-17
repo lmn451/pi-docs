@@ -5,6 +5,8 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { readInjectionHistory } from "./audit";
+import { formatInjectionHistory } from "./injector";
 import type { DocRegistry } from "./registry";
 import type { DocInjectorConfig } from "./types";
 
@@ -25,6 +27,7 @@ export interface CommandDeps {
  *
  * Commands:
  * - `/doc-inject [on|off|toggle|list|reset|status]` — manage injection state
+ * - `/doc-inject history [count|all]` — inspect saved injection history
  * - `/doc-reload` — re-scan docs folder
  * - `/doc-keywords-gen [path]` — generate LLM keywords for keyword-less files
  */
@@ -39,9 +42,29 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
 
   cmd(
     "doc-inject",
-    "Doc injector: on|off|toggle|list|reset|status",
+    "Doc injector: on|off|toggle|list|reset|status|history [count|all]",
     async (args, ctx) => {
       const a = args.trim().toLowerCase();
+      if (/^history(?:\s|$)/.test(a)) {
+        const requested = a.slice("history".length).trim();
+        let limit: number | "all" = 20;
+        if (requested === "all") {
+          limit = "all";
+        } else if (requested) {
+          const count = /^\d+$/.test(requested) ? Number(requested) : NaN;
+          if (!Number.isSafeInteger(count) || count <= 0) {
+            ctx.ui.notify(
+              "Usage: /doc-inject history [count|all] (count must be a positive safe integer)",
+              "warning",
+            );
+            return;
+          }
+          limit = count;
+        }
+        const history = readInjectionHistory(ctx.sessionManager.getBranch());
+        ctx.ui.notify(formatInjectionHistory(history, limit), "info");
+        return;
+      }
       if (a === "on") {
         deps.setEnabled(true);
         ctx.ui.notify("📄 Doc injection enabled", "info");

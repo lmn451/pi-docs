@@ -4,7 +4,7 @@ This is a Pi extension. Read `package.json`, `README.md`, and the relevant sourc
 
 ## Purpose
 
-The extension scans project docs and adds selected files to the model context as a `CustomMessage` from `before_agent_start` or a persisted `custom_message` draft from `turn_end`. It never edits the system prompt. A document is marked injected once per extension session; `/doc-inject reset` clears those marks. Reload rebuilds in-memory marks.
+The extension scans project docs and adds selected files to the model context as a `CustomMessage` from `before_agent_start` or a persisted `custom_message` draft from `turn_end`. It never edits the system prompt. A document is marked injected once per extension session; `/doc-inject reset` clears those marks. Reload rebuilds in-memory marks, while injection history is read independently from native current-branch session entries.
 
 ## Matching modes
 
@@ -28,7 +28,8 @@ Only keyword mode scans `message_update`. `extractText()` reads `text` blocks an
 | `cache.ts`                         | Validates and persists keyword-mode cache                  |
 | `keyword-gen.ts`, `keyword-llm.ts` | Optional keyword generation                                |
 | `injector.ts`                      | CustomMessage content and keyword display sanitization     |
-| `commands.ts`                      | `/doc-*` commands                                          |
+| `audit.ts`                         | Versioned injection reasons and history parsing            |
+| `commands.ts`                      | `/doc-*` commands, including injection history             |
 | `types.ts`                         | Shared types and defaults                                  |
 
 ## Invariants
@@ -38,6 +39,7 @@ Only keyword mode scans `message_update`. `extractText()` reads `text` blocks an
 3. The keyword matcher must test within its tail window without inventing a word boundary at its left edge. Count distinct keywords only.
 4. Reject symlinked docs and keyword-tool paths that do not name registered docs. Validate loaded cache and config data before use.
 5. Keep keyword display sanitization in `injector.ts`.
+6. Store injection reasons as versioned `details` on actual doc-inject custom messages/drafts. History reads saved entries from the current native branch; do not create a separate audit log or duplicate document bodies, and do not treat a saved message as proof the model read the document. Legacy messages without usable reasons metadata are unavailable, not grounds to infer reasons.
 
 ## Checks
 
