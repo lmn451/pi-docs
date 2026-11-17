@@ -220,6 +220,25 @@ describe("KeywordMatcher", () => {
   });
 });
 
+test("tail windows preserve supplementary Unicode word boundaries", () => {
+  const matcher = new KeywordMatcher([makeEntry("test.md", ["test"])], {
+    matchThreshold: 1,
+    windowSize: 4,
+  });
+  expect(matcher.match("𐐀test")).toEqual([]);
+  expect(matcher.match("prefix𐐀test")).toEqual([]);
+  expect(matcher.match("😀test")).toHaveLength(1);
+  expect(matcher.match("𐐀 test")).toHaveLength(1);
+});
+
+test("Unicode lookbehind context does not expand the matching window", () => {
+  const matcher = new KeywordMatcher([makeEntry("test.md", ["𐐀", "test"])], {
+    matchThreshold: 1,
+    windowSize: 4,
+  });
+  expect(matcher.match("𐐀test")).toEqual([]);
+});
+
 describe("extractText", () => {
   test("extracts from plain string", () => {
     expect(extractText("hello world")).toBe("hello world");

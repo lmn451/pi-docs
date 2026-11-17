@@ -55,8 +55,10 @@ function escapeRegExp(s: string): string {
 function buildKeywordRegex(keyword: string, caseSensitive: boolean): RegExp {
   const escaped = escapeRegExp(keyword);
   const characters = Array.from(keyword);
-  const left = WORD_CHAR.test(characters[0]) ? "(?<![\\p{L}\\p{N}_])" : "";
-  const right = WORD_CHAR.test(characters[characters.length - 1])
+  const left = WORD_CHAR.test(characters[0] ?? "")
+    ? "(?<![\\p{L}\\p{N}_])"
+    : "";
+  const right = WORD_CHAR.test(characters[characters.length - 1] ?? "")
     ? "(?![\\p{L}\\p{N}_])"
     : "";
   return new RegExp(`${left}${escaped}${right}`, caseSensitive ? "gu" : "giu");
@@ -110,9 +112,18 @@ export class KeywordMatcher {
     // window aren't lost.
     const { windowSize } = this.options;
     const sliced = windowSize > 0 && text.length > windowSize;
-    // Keep one preceding character so the left word boundary sees the true text.
-    const scanText = sliced ? text.slice(-windowSize - 1) : text;
-    const minStart = sliced ? 1 : 0;
+    // Preserve the complete preceding code point, including surrogate pairs.
+    const windowStart = sliced ? text.length - windowSize : 0;
+    let scanStart = Math.max(0, windowStart - 1);
+    if (
+      scanStart > 0 &&
+      /[\uDC00-\uDFFF]/.test(text.charAt(scanStart)) &&
+      /[\uD800-\uDBFF]/.test(text.charAt(scanStart - 1))
+    ) {
+      scanStart--;
+    }
+    const scanText = text.slice(scanStart);
+    const minStart = windowStart - scanStart;
 
     const results: MatchResult[] = [];
 

@@ -162,10 +162,9 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
 
       const targetPath = args.trim();
 
-      // Filter to keyword-less entries (keywordSource !== "frontmatter", "cache", or "llm")
+      // Heuristic keywords remain eligible for upgrade after cache-backed reloads.
       let candidates = reg.getEntries().filter((e) => {
         if (e.keywordSource === "frontmatter") return false;
-        if (e.keywordSource === "cache") return false;
         if (e.keywordSource === "llm") return false; // already LLM-generated
         return true;
       });

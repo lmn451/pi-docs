@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": false
+  },
+  "include": [
+    "types.ts",
+    "matcher.ts",
+    "keyword-gen.ts",
+    "keyword-llm.ts",
+    "injector.ts",
+    "typechecks/core.test-d.ts"
+  ]
+}
