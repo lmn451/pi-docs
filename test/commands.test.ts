@@ -68,6 +68,7 @@ function makeDocInjectHandler() {
   } as unknown as ExtensionAPI;
   const deps: CommandDeps = {
     getRegistry: () => null,
+    resetInjectionState: vi.fn(),
     getEnabled: () => true,
     setEnabled: () => {},
     reloadRegistry: async () => 0,
@@ -264,6 +265,7 @@ test.each(["", "auth.md"])(
       } as any,
       {
         getRegistry: () => registry,
+        resetInjectionState: () => registry.markAllNotInjected(),
         getEnabled: () => true,
         setEnabled() {},
         reloadRegistry: async () => registry.getEntries().length,
