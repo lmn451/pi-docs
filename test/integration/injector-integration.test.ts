@@ -1408,11 +1408,11 @@ describe("Doc Injector Extension - Streaming Matcher Caching", () => {
     await triggerSessionStart(api);
 
     await triggerInput(api, "orchid cobalt");
-    const initial = await api.emit(
+    const initial = (await api.emit(
       "before_agent_start",
       { messageType: "user", systemPrompt: "" },
       api._sessionCtx,
-    ) as { message?: { content: string; details: { documents: unknown[] } } };
+    )) as { message?: { content: string; details: { documents: unknown[] } } };
     expect(initial.message?.content).toContain("A content.");
     expect(initial.message?.details.documents).toHaveLength(1);
 
@@ -1434,16 +1434,16 @@ describe("Doc Injector Extension - Streaming Matcher Caching", () => {
       {
         message: {
           role: "assistant",
-          content: `${"x".repeat(80)}orchid cobalt beacon.`,
+          content: `anchor ${"x".repeat(80)} orchid cobalt beacon.`,
         },
       },
       api._sessionCtx,
     );
-    const result = await api.emit(
+    const result = (await api.emit(
       "before_agent_start",
       { messageType: "user", systemPrompt: "" },
       api._sessionCtx,
-    ) as {
+    )) as {
       message?: {
         content: string;
         details: {
@@ -1501,11 +1501,11 @@ describe("Doc Injector Extension - Streaming Matcher Caching", () => {
       api._sessionCtx,
     );
 
-    const result = await api.emit(
+    const result = (await api.emit(
       "before_agent_start",
       { messageType: "user", systemPrompt: "" },
       api._sessionCtx,
-    ) as { message?: { content: string } };
+    )) as { message?: { content: string } };
     expect(result.message?.content).toContain("Lifecycle content.");
   });
 });
