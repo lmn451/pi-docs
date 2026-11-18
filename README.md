@@ -8,6 +8,15 @@ A [Pi](https://pi.dev) extension that adds relevant project docs to the conversa
 pi install npm:pi-doc-injector
 ```
 
+Or install directly from GitHub:
+
+```bash
+pi install git:github.com/lmn451/pi-docs@master
+```
+
+Replace `master` with a branch, tag, or commit to select another revision.
+If switching from npm, run `pi remove npm:pi-doc-injector` first to avoid loading both copies.
+
 Requires Pi 1.5.2 or newer within the 1.x series.
 
 ## Simple mode (default)
