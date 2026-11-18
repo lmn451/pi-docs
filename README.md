@@ -8,6 +8,15 @@ A [Pi](https://pi.dev) extension that adds relevant project docs to the conversa
 pi install npm:pi-doc-injector
 ```
 
+Or install directly from GitHub:
+
+```bash
+pi install git:github.com/lmn451/pi-docs@master
+```
+
+Replace `master` with a branch, tag, or commit to select another revision.
+If switching from npm, run `pi remove npm:pi-doc-injector` first to avoid loading both copies.
+
 Requires Pi 1.5.2 or newer within the 1.x series.
 
 ## Simple mode (default)
@@ -106,6 +115,14 @@ npm test
 npm run typecheck
 npm run format:check
 ```
+
+The runtime glob filter uses `minimatch`. Pi supplies the required
+`@earendil-works/pi-coding-agent` and `typebox` peer APIs; local development
+installs them as dev dependencies, and tests run with Vitest 4.1.12. Its current
+Vite 8.3.8 toolchain resolves vulnerable `picomatch@4.0.7`
+(GHSA-fc5q-39xc-vjpf); npm audit also flags the related `tinyglobby`, `fdir`,
+Vite, and Vitest development-graph nodes. This is dev-only, not the runtime glob
+engine; no patched picomatch release is available.
 
 Lifecycle tests cover full input and long completed thinking/output, block boundaries and partial words, persisted same-run injection, duplicate suppression, abort/error outcomes, the continuation limit, context guards, and keyword-mode streaming regressions.
 

@@ -1,9 +1,32 @@
 /**
  * Glob filter for include/exclude pattern matching.
- * Uses picomatch (0 deps, ~18 KB) to compile patterns once for O(1) matching.
+ * Patterns are compiled once into Minimatch's non-recursive matchers.
  */
-import picomatch from "picomatch";
+import { Minimatch } from "minimatch";
 import type { GlobFilter } from "./types";
+
+// Preserve literal # and leading-! behavior while keeping extglobs enabled.
+const globOptions = { dot: true, nocomment: true, nonegate: false };
+
+function compilePatterns(patterns: string[]): Minimatch[] {
+  const matchers: Minimatch[] = [];
+  for (const pattern of patterns) {
+    matchers.push(new Minimatch(pattern, globOptions));
+  }
+  return matchers;
+}
+
+function matchesAny(
+  matchers: readonly Minimatch[],
+  relativePath: string,
+): boolean {
+  for (const matcher of matchers) {
+    if (matcher.match(relativePath)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Create a glob filter from include and exclude patterns.
@@ -22,20 +45,18 @@ export function createGlobFilter(
   include: string[],
   exclude: string[],
 ): GlobFilter {
-  const includeMatcher =
-    include.length > 0 ? picomatch(include, { dot: true }) : null;
+  const includeMatchers = include.length > 0 ? compilePatterns(include) : null;
 
-  const excludeMatcher =
-    exclude.length > 0 ? picomatch(exclude, { dot: true }) : null;
+  const excludeMatchers = exclude.length > 0 ? compilePatterns(exclude) : null;
 
   return {
     match(relativePath: string): boolean {
       // If include patterns are specified, path must match at least one
-      if (includeMatcher && !includeMatcher(relativePath)) {
+      if (includeMatchers && !matchesAny(includeMatchers, relativePath)) {
         return false;
       }
       // Path must not match any exclude pattern
-      if (excludeMatcher && excludeMatcher(relativePath)) {
+      if (excludeMatchers && matchesAny(excludeMatchers, relativePath)) {
         return false;
       }
       return true;
