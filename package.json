@@ -1,6 +1,6 @@
 {
   "name": "pi-doc-injector",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Inject project docs into Pi context when their filename appears in the conversation",
   "type": "module",
   "main": "./index.ts",
