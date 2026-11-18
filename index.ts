@@ -92,6 +92,13 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
 
   // ---- Helpers ----
   const getRegistry = () => registry;
+  const invalidateStreamMatcher = () => {
+    streamMatcher = null;
+  };
+  const resetInjectionState = () => {
+    registry?.markAllNotInjected();
+    invalidateStreamMatcher();
+  };
   const getEnabled = () => enabled;
   const setEnabled = (v: boolean) => {
     enabled = v;
@@ -106,7 +113,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
         ? await loadCache(cwd, notifier)
         : { version: 1, files: {} };
     registry = await DocRegistry.create(docsPath, config, cache, notifier);
-    streamMatcher = null;
+    invalidateStreamMatcher();
 
     const dirty = registry.getDirtyCache();
     if (Object.keys(dirty).length > 0) {
@@ -173,6 +180,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       }
       if (saved > 0) {
         await mergeAndSaveCache(ctx.cwd, dirtyEntries, notifier);
+        invalidateStreamMatcher();
       }
       llmBatchesCompleted++;
       llmTotalFiles += saved;
@@ -197,7 +205,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     streamHits.clear();
     continuedForDocs = false;
     continuationLimitNotified = false;
-    streamMatcher = null;
+    invalidateStreamMatcher();
 
     // Bind the notifier to the live context FIRST so any warnings emitted
     // during initRegistry below go directly to the TUI instead of being
@@ -228,7 +236,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     }
 
     await registry.rebuild();
-    streamMatcher = null;
+    invalidateStreamMatcher();
 
     const dirty = registry.getDirtyCache();
     if (Object.keys(dirty).length > 0) {
@@ -317,8 +325,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   // Hits belong to one assistant message. Clear them after any message ends.
   pi.on("message_end", async () => {
     streamHits.clear();
-    textBuffer = "";
-    streamMatcher = null;
+    invalidateStreamMatcher();
   });
 
   const prepareInjection = (
@@ -400,6 +407,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
     // Pi exposes no post-commit callback for returned messages/drafts. Mark
     // only after preparation succeeds, immediately before proposing them.
     registry.markInjected(matchedEntries.map((e) => e.filePath));
+    invalidateStreamMatcher();
     clearPendingMatches();
     return { content, details };
   };
@@ -495,6 +503,7 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
   // ---- Commands ----
   registerCommands(pi, {
     getRegistry,
+    resetInjectionState,
     getEnabled,
     setEnabled,
     reloadRegistry,

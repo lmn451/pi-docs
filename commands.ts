@@ -13,6 +13,7 @@ import type { DocInjectorConfig } from "./types";
 /** Dependencies injected into the command registrar. */
 export interface CommandDeps {
   getRegistry: () => DocRegistry | null;
+  resetInjectionState: () => void;
   getEnabled: () => boolean;
   setEnabled: (v: boolean) => void;
   reloadRegistry: () => Promise<number>;
@@ -81,7 +82,7 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandDeps): void {
       } else if (a === "reset") {
         const reg = deps.getRegistry();
         if (reg) {
-          reg.markAllNotInjected();
+          deps.resetInjectionState();
           ctx.ui.notify("📄 Injection state reset", "info");
         } else {
           ctx.ui.notify("📄 No registry loaded", "warning");

@@ -10,7 +10,6 @@ import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 import docInjectorExtension from "../../index";
-import { KeywordMatcher } from "../../matcher";
 
 // ---- Simple mock factory ----
 function createMockFn() {
@@ -1384,33 +1383,102 @@ describe("Doc Injector Extension - Streaming Matcher Caching", () => {
     vi.restoreAllMocks();
   });
 
-  test("reuses one matcher across chunks within an assistant message", async () => {
-    const matchSpy = vi.spyOn(KeywordMatcher.prototype, "match");
+  test("reset restores a doc excluded from the matcher and preserves other partial hits", async () => {
+    writeFileSync(
+      resolve(FIXTURE_DOCS, "testing-guide.md"),
+      "---\nkeywords: [orchid, cobalt, beacon]\n---\n# A document\nA content.",
+    );
+    writeFileSync(
+      resolve(FIXTURE_DOCS, "workflow.md"),
+      "---\nkeywords: [anchor, beacon]\n---\n# B document\nB content.",
+    );
+    writeFileSync(
+      resolve(__dirname, ".pi", "doc-injector.json"),
+      JSON.stringify({
+        mode: "keywords",
+        docsPath: "./fixtures/docs",
+        matchThreshold: 2,
+        streamWindowSize: 40,
+      }),
+    );
     const api = createMockAPI();
     await docInjectorExtension(
       api as unknown as Parameters<typeof docInjectorExtension>[0],
     );
     await triggerSessionStart(api);
 
-    for (let i = 0; i < 3; i++) {
-      await api.emit(
-        "message_update",
-        {
-          message: {
-            role: "assistant",
-            content: `chunk ${i} has no matching keywords`,
-          },
-        },
-        api._sessionCtx,
-      );
-    }
+    await triggerInput(api, "orchid cobalt");
+    const initial = await api.emit(
+      "before_agent_start",
+      { messageType: "user", systemPrompt: "" },
+      api._sessionCtx,
+    ) as { message?: { content: string; details: { documents: unknown[] } } };
+    expect(initial.message?.content).toContain("A content.");
+    expect(initial.message?.details.documents).toHaveLength(1);
 
-    expect(matchSpy).toHaveBeenCalledTimes(3);
-    expect(new Set(matchSpy.mock.contexts).size).toBe(1);
+    await api.emit(
+      "message_update",
+      {
+        message: {
+          role: "assistant",
+          content: "anchor ",
+        },
+      },
+      api._sessionCtx,
+    );
+    const reset = api._commandHandlers.get("doc-inject");
+    expect(reset).toBeDefined();
+    await reset!("reset", { ui: { notify: createMockFn() } });
+    await api.emit(
+      "message_update",
+      {
+        message: {
+          role: "assistant",
+          content: `${"x".repeat(80)}orchid cobalt beacon.`,
+        },
+      },
+      api._sessionCtx,
+    );
+    const result = await api.emit(
+      "before_agent_start",
+      { messageType: "user", systemPrompt: "" },
+      api._sessionCtx,
+    ) as {
+      message?: {
+        content: string;
+        details: {
+          documents: Array<{
+            relativePath: string;
+            triggers: Array<{ source: string; matchedKeywords: string[] }>;
+          }>;
+        };
+      };
+    };
+
+    expect(result.message?.content).toContain("A content.");
+    expect(result.message?.content).toContain("B content.");
+    expect(result.message?.details.documents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          relativePath: "testing-guide.md",
+          triggers: [
+            {
+              source: "assistant",
+              matchedKeywords: ["orchid", "cobalt", "beacon"],
+            },
+          ],
+        }),
+        expect.objectContaining({
+          relativePath: "workflow.md",
+          triggers: [
+            { source: "assistant", matchedKeywords: ["anchor", "beacon"] },
+          ],
+        }),
+      ]),
+    );
   });
 
-  test("builds a fresh matcher after message_end", async () => {
-    const matchSpy = vi.spyOn(KeywordMatcher.prototype, "match");
+  test("resources discovery rebuilds cached streaming eligibility", async () => {
     const api = createMockAPI();
     await docInjectorExtension(
       api as unknown as Parameters<typeof docInjectorExtension>[0],
@@ -1419,41 +1487,25 @@ describe("Doc Injector Extension - Streaming Matcher Caching", () => {
 
     await api.emit(
       "message_update",
-      {
-        message: {
-          role: "assistant",
-          content: "first chunk has no matching keywords",
-        },
-      },
+      { message: { role: "assistant", content: "no known document keyword" } },
       api._sessionCtx,
     );
+    writeFileSync(
+      resolve(FIXTURE_DOCS, "new-resource.md"),
+      "---\nkeywords: [lifecycle]\n---\n# New resource\nLifecycle content.",
+    );
+    await api.emit("resources_discover", {}, api._sessionCtx);
     await api.emit(
       "message_update",
-      {
-        message: {
-          role: "assistant",
-          content: "second chunk has no matching keywords",
-        },
-      },
-      api._sessionCtx,
-    );
-    await api.emit(
-      "message_end",
-      { message: { role: "user", content: "" } },
-      api._sessionCtx,
-    );
-    await api.emit(
-      "message_update",
-      {
-        message: {
-          role: "assistant",
-          content: "next message has no matching keywords",
-        },
-      },
+      { message: { role: "assistant", content: "lifecycle" } },
       api._sessionCtx,
     );
 
-    expect(matchSpy).toHaveBeenCalledTimes(3);
-    expect(new Set(matchSpy.mock.contexts).size).toBe(2);
+    const result = await api.emit(
+      "before_agent_start",
+      { messageType: "user", systemPrompt: "" },
+      api._sessionCtx,
+    ) as { message?: { content: string } };
+    expect(result.message?.content).toContain("Lifecycle content.");
   });
 });
