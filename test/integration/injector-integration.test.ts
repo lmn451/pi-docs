@@ -103,6 +103,7 @@ interface MockExtensionAPI {
     handler: (event: unknown, ctx: unknown) => unknown,
   ) => void;
   emit: (event: string, data: unknown, ctx: unknown) => Promise<unknown>;
+  registerMessageRenderer: () => void;
   registerCommand: (
     name: string,
     opts: { description: string; handler: (...args: unknown[]) => unknown },
@@ -193,6 +194,7 @@ const createMockAPI = (): MockExtensionAPI => {
       handlers.push(handler);
       this._handlers.set(event, handlers);
     },
+    registerMessageRenderer() {},
     registerCommand(
       name: string,
       opts: { description: string; handler: (...args: unknown[]) => unknown },

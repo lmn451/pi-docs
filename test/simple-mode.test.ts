@@ -39,6 +39,7 @@ function setup() {
       tools.set(def.name, def);
     },
     registerCommand() {},
+    registerMessageRenderer() {},
     sendUserMessage,
   };
   const ctx = {
