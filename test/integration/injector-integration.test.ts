@@ -303,7 +303,8 @@ describe("Doc Injector Extension - Integration", () => {
 
     expect(result).toBeDefined();
     const typedResult = result as
-      { message?: { customType: string; content: string } } | undefined;
+      | { message?: { customType: string; content: string } }
+      | undefined;
     expect(typedResult?.message?.customType).toBe("doc-injector");
     expect(typedResult?.message?.content).toContain(
       "## Relevant Context Documents",
@@ -333,7 +334,8 @@ describe("Doc Injector Extension - Integration", () => {
 
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
     const typedResult = result as
-      { message?: { customType: string; content: string } } | undefined;
+      | { message?: { customType: string; content: string } }
+      | undefined;
     expect(typedResult?.message?.customType).toBe("doc-injector");
     expect(typedResult?.message?.content).toContain("Testing Guide");
   });
@@ -404,7 +406,8 @@ describe("Doc Injector Extension - Integration", () => {
     await triggerInput(api, "unit test for the testing module");
     const r2 = await triggerAgentStart(api, "You are a helpful assistant.");
     const typedResult2 = r2 as
-      { message?: { customType: string; content: string } } | undefined;
+      | { message?: { customType: string; content: string } }
+      | undefined;
     expect(typedResult2?.message?.customType).toBe("doc-injector");
     expect(typedResult2?.message?.content).toContain("Testing Guide");
   });
@@ -423,7 +426,8 @@ describe("Doc Injector Extension - Integration", () => {
     const result = await triggerAgentStart(api, "You are a helpful assistant.");
 
     const typedResult = result as
-      { message?: { customType: string; content: string } } | undefined;
+      | { message?: { customType: string; content: string } }
+      | undefined;
     expect(typedResult?.message?.content).toContain("Testing Guide");
     expect(typedResult?.message?.content).toContain("Workflow Guide");
   });
@@ -452,7 +456,8 @@ describe("Doc Injector Extension - Integration", () => {
 
     // Second turn should NOT return a message at all — doc is already injected.
     const typedResult2 = result2 as
-      { message?: { content: string } } | undefined;
+      | { message?: { content: string } }
+      | undefined;
     expect(typedResult2?.message).toBeUndefined();
   });
 
@@ -626,7 +631,8 @@ describe("Doc Injector Extension - Session Reset", () => {
       "You are a helpful assistant.",
     );
     const typedResult2 = result2 as
-      { message?: { content: string } } | undefined;
+      | { message?: { content: string } }
+      | undefined;
     expect(typedResult2?.message).toBeUndefined();
 
     // Reset via command — should allow re-injection
@@ -1231,7 +1237,8 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
     // The returned `systemPrompt` field must be undefined (we don't
     // override it) and the message field must contain the doc content.
     const typed1 = r1 as
-      { systemPrompt?: string; message?: { content: string } } | undefined;
+      | { systemPrompt?: string; message?: { content: string } }
+      | undefined;
     expect(typed1?.systemPrompt).toBeUndefined();
     expect(typed1?.message?.content).toContain("Testing Guide");
 
@@ -1239,7 +1246,8 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
     await triggerInput(api, "more testing");
     const r2 = await triggerAgentStart(api, basePrompt);
     const typed2 = r2 as
-      { systemPrompt?: string; message?: { content: string } } | undefined;
+      | { systemPrompt?: string; message?: { content: string } }
+      | undefined;
     expect(typed2?.systemPrompt).toBeUndefined();
     expect(typed2?.message).toBeUndefined();
   });
@@ -1322,7 +1330,8 @@ describe("Doc Injector Extension - No Double Injection Validation", () => {
     expect(
       (
         (await triggerAgentStart(api, "x")) as
-          { message?: { content: string } } | undefined
+          | { message?: { content: string } }
+          | undefined
       )?.message,
     ).toBeUndefined();
   });
