@@ -7,7 +7,12 @@
  * than appended to the system prompt. This keeps the system prompt
  * byte-identical across turns so the provider's prompt cache stays warm.
  */
-import type { InjectionHistory, InjectionHistoryRecord } from "./audit";
+import { stripVTControlCharacters } from "node:util";
+import {
+  readInjectionAuditDetails,
+  type InjectionHistory,
+  type InjectionHistoryRecord,
+} from "./audit";
 import type { DocEntry } from "./types";
 
 /**
@@ -31,6 +36,27 @@ function sanitizeKeywords(keywords: string[]): string[] {
     .filter((k) => k.length > 0)
     .map((k) => (k.length > 100 ? k.slice(0, 100) : k))
     .slice(0, 20);
+}
+
+function summaryText(value: string): string {
+  return stripVTControlCharacters(value)
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu, " ")
+    .trim();
+}
+
+export function formatInjectionSummary(details: unknown): string[] {
+  const audit = readInjectionAuditDetails(details);
+  if (!audit) return [];
+
+  return audit.documents.map(({ relativePath, triggers }) => {
+    const path = summaryText(relativePath) || "(path unavailable)";
+    const matches = triggers.flatMap(({ source, matchedKeywords }) => {
+      const keywords = sanitizeKeywords(matchedKeywords.map(summaryText));
+      const label = source === "input" ? "user input" : "assistant";
+      return keywords.length > 0 ? [`${label}: ${keywords.join(", ")}`] : [];
+    });
+    return matches.length > 0 ? `${path} — ${matches.join("; ")}` : path;
+  });
 }
 
 /**

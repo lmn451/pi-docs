@@ -22,7 +22,11 @@ import {
   type InjectionMatchSource,
   type InjectionTrigger,
 } from "./audit";
-import { buildInjectionContent, notifyInjection } from "./injector";
+import {
+  buildInjectionContent,
+  formatInjectionSummary,
+  notifyInjection,
+} from "./injector";
 import { buildKeywordGenPrompt } from "./keyword-llm";
 import { extractText, extractTextBlocks, KeywordMatcher } from "./matcher";
 import { ExtensionNotifier, type Notifier } from "./notifier";
@@ -37,7 +41,7 @@ import {
 import { registerCommands } from "./commands";
 
 export default async function docInjectorExtension(pi: ExtensionAPI) {
-  pi.registerMessageRenderer("doc-injector", (_message, options, theme) => {
+  pi.registerMessageRenderer("doc-injector", (message, options, theme) => {
     // Let Pi render the original Markdown when transcript output is expanded.
     if (options.expanded) return undefined;
     const label = theme.fg("customMessageLabel", "Injected documents");
@@ -46,6 +50,9 @@ export default async function docInjectorExtension(pi: ExtensionAPI) {
       theme.bg("customMessageBg", line),
     );
     box.addChild(new Text(`${label} (${hint})`, 0, 0));
+    for (const line of formatInjectionSummary(message.details)) {
+      box.addChild(new Text(theme.fg("customMessageText", line), 0, 0));
+    }
     return box;
   });
 

@@ -40,6 +40,7 @@ function expectExpandableDocs(session: AgentSession) {
     ?.render(80)
     .join("\n");
   expect(summary).toContain("Injected documents (Ctrl+O to expand)");
+  expect(summary).toContain("auth.md — assistant: auth");
   expect(summary).not.toContain("Private project auth instructions.");
   expect(options.keyHint).toHaveBeenCalledWith("app.tools.expand", "to expand");
   // Returning undefined selects Pi's own renderer for the original message.
