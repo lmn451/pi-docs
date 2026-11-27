@@ -12,6 +12,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { resolve } from "node:path";
 import { loadCache, mergeAndSaveCache } from "./cache";
@@ -36,6 +37,18 @@ import {
 import { registerCommands } from "./commands";
 
 export default async function docInjectorExtension(pi: ExtensionAPI) {
+  pi.registerMessageRenderer("doc-injector", (_message, options, theme) => {
+    // Let Pi render the original Markdown when transcript output is expanded.
+    if (options.expanded) return undefined;
+    const label = theme.fg("customMessageLabel", "Injected documents");
+    const hint = options.keyHint("app.tools.expand", "to expand");
+    const box = new Box(options.outputPad, 1, (line) =>
+      theme.bg("customMessageBg", line),
+    );
+    box.addChild(new Text(`${label} (${hint})`, 0, 0));
+    return box;
+  });
+
   // ---- State ----
   // The notifier buffers warnings emitted during startup (loadConfig,
   // loadCache, initRegistry) and flushes them via ctx.ui.notify() in

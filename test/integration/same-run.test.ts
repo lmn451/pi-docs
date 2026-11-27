@@ -8,6 +8,8 @@ import {
   ModelRuntime,
   SessionManager,
   SettingsManager,
+  type AgentSession,
+  type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { readInjectionHistory } from "../../audit";
 import docInjectorExtension from "../../index";
@@ -18,6 +20,33 @@ afterEach(() => {
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true });
 });
+
+function expectExpandableDocs(session: AgentSession) {
+  const renderer = session.extensionRunner.getMessageRenderer("doc-injector");
+  const message = session.messages.find((item) => item.role === "custom");
+  if (!renderer || !message) throw new Error("Expected a rendered injection");
+  expect(message).toMatchObject({ customType: "doc-injector", display: true });
+  const theme = {
+    fg: (_color, text) => text,
+    bg: (_color, text) => text,
+  } satisfies Pick<Theme, "fg" | "bg">;
+  const options = {
+    expanded: false,
+    outputPad: 1,
+    keyText: () => "Ctrl+O",
+    keyHint: vi.fn(() => "Ctrl+O to expand"),
+  };
+  const summary = renderer(message, options, theme as Theme)
+    ?.render(80)
+    .join("\n");
+  expect(summary).toContain("Injected documents (Ctrl+O to expand)");
+  expect(summary).not.toContain("Private project auth instructions.");
+  expect(options.keyHint).toHaveBeenCalledWith("app.tools.expand", "to expand");
+  // Returning undefined selects Pi's own renderer for the original message.
+  expect(
+    renderer(message, { ...options, expanded: true }, theme as Theme),
+  ).toBeUndefined();
+}
 
 // Exercise Pi's actual boundary commit and agent loop with a local fake stream.
 // No provider, credentials, or external requests are used.
@@ -142,6 +171,7 @@ test.each([false, true])(
             entry.customType === "doc-injector",
         );
       expect(docs).toHaveLength(1);
+      expectExpandableDocs(session);
       const history = readInjectionHistory(manager.getBranch());
       expect(history.unavailableMessages).toBe(0);
       expect(history.records).toHaveLength(1);

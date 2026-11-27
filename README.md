@@ -19,6 +19,8 @@ If switching from npm, run `pi remove npm:pi-doc-injector` first to avoid loadin
 
 Requires Pi 1.5.2 or newer within the 1.x series.
 
+The Pi transcript shows injected documents collapsed by default. Press Pi’s **Expand tools** shortcut (`Ctrl+O` by default) to show or hide their contents along with other expandable transcript items. This changes only what you see. The model still receives the complete documents.
+
 ## Simple mode (default)
 
 Create `docs/auth.md`. When **auth** appears as a complete word in a user message, assistant text, or assistant thinking, the extension selects that file. Matching ignores case. A user match injects the doc before the assistant responds. An assistant match injects it at Pi's completed `turn_end` boundary, after the assistant response and any tool results are saved. Pi persists a `custom_message` entry and continues the **same** run with the document available to the next provider request.
