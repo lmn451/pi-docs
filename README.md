@@ -19,7 +19,7 @@ If switching from npm, run `pi remove npm:pi-doc-injector` first to avoid loadin
 
 Requires Pi 1.5.2 or newer within the 1.x series.
 
-The Pi transcript shows injected documents collapsed by default. Press Pi’s **Expand tools** shortcut (`Ctrl+O` by default) to show or hide their contents along with other expandable transcript items. This changes only what you see. The model still receives the complete documents.
+The Pi transcript shows injected documents collapsed by default. The summary lists each document’s path relative to the docs folder and the recorded match source and terms. Press Pi’s **Expand tools** shortcut (`Ctrl+O` by default) to show or hide the full contents along with other expandable transcript items. This changes only what you see. The model still receives the complete documents.
 
 ## Simple mode (default)
 

@@ -1,6 +1,7 @@
 import {
   buildInjectionContent,
   formatInjectionHistory,
+  formatInjectionSummary,
   notifyInjection,
 } from "../injector";
 import type { InjectionHistory, InjectionHistoryRecord } from "../audit";
@@ -42,6 +43,46 @@ const makeEntry = (
   content,
   injected: false,
   keywordSource: "frontmatter",
+});
+
+describe("formatInjectionSummary", () => {
+  test("lists each path and only its recorded matches by source", () => {
+    const first = {
+      ...makeHistoryRecord(),
+      relativePath: "guides/\x1b[31mauth.md\x1b[0m",
+      triggers: [
+        { source: "input", matchedKeywords: ["sign\nin"] },
+        { source: "assistant", matchedKeywords: ["oauth\x07 callback"] },
+      ],
+    };
+    const second = makeHistoryRecord({
+      relativePath: "billing.md",
+      triggers: [{ source: "assistant", matchedKeywords: ["invoice"] }],
+    });
+    expect(
+      formatInjectionSummary({
+        version: 1,
+        mode: "keywords",
+        boundary: "turn_end",
+        documents: [first, second],
+      }),
+    ).toEqual([
+      "guides/auth.md — user input: sign in; assistant: oauth  callback",
+      "billing.md — assistant: invoice",
+    ]);
+  });
+
+  test("does not guess match details for legacy or malformed messages", () => {
+    expect(formatInjectionSummary(undefined)).toEqual([]);
+    expect(
+      formatInjectionSummary({
+        version: 1,
+        mode: "simple",
+        boundary: "before_agent_start",
+        documents: [{ relativePath: "auth.md", triggers: [] }],
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe("buildInjectionContent", () => {

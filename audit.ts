@@ -72,7 +72,9 @@ function formatTimestamp(value: unknown): string | null {
   return date.toISOString();
 }
 
-function readDetails(value: unknown): InjectionAuditDetails | null {
+export function readInjectionAuditDetails(
+  value: unknown,
+): InjectionAuditDetails | null {
   if (!isRecord(value)) return null;
   if (value.version !== 1) return null;
   if (value.mode !== "simple" && value.mode !== "keywords") return null;
@@ -160,7 +162,7 @@ export function readInjectionHistory(
       continue;
 
     const timestamp = formatTimestamp(entry.timestamp);
-    const details = readDetails(entry.details);
+    const details = readInjectionAuditDetails(entry.details);
     if (!timestamp || !isNonemptyString(entry.id) || !details) {
       unavailableMessages++;
       continue;
